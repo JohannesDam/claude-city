@@ -778,5 +778,23 @@
   "reported_by": "builder-east",
   "status": "open",
   "added": "2026-11-21"
+ },
+ {
+  "rank": 75,
+  "domain": "Transit",
+  "feature": "Remove transit stops",
+  "why_it_matters": "/bulldoze ids refuses stops ('not a building'); orphaned tram stops (478659:145, 396403:167, 198838:29, 398345:171) cannot be removed.",
+  "reported_by": "builder-central",
+  "status": "open",
+  "added": "2026-11-21"
+ },
+ {
+  "rank": 76,
+  "domain": "Transit",
+  "feature": "Subway yard second track node",
+  "why_it_matters": "Joining a subway yard's second track node to a tunnel fails (steep slope / invalid shape); the yard keeps a 'No Train Access' icon.",
+  "reported_by": "builder-central",
+  "status": "open",
+  "added": "2026-11-21"
  }
 ]

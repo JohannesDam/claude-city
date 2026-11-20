@@ -1,0 +1,30 @@
+{
+  "vision": "Claude City: an aesthetic pearl where people and city live in synergy. Green belts around every district, clean air (polluters downwind, NE), quiet homes (buffers between homes and highways/industry), short trips (jobs near homes, public transport), and landmarks people are proud of. Growth target: 150k+ residents without losing liveability.",
+  "rules": [
+    "Wind blows from SW to NE: anything polluting (industry, landfills, incinerators, power) goes NE of homes or over water; never SW of homes.",
+    "Groundwater under the southern industry is polluted: pumps only on the clean northern aquifer (GET /groundwater).",
+    "Zone the density that has demand (GET /city demand); don't zone what has demand 0.",
+    "Every residential block within park coverage (GET /coverage?service=Park&layer=homes); every complaint type has an owner (tools/desk.py).",
+    "Parks, attractions and the landmark zones below are protected: no zoning, no utilities, no industry there.",
+    "Build only while holding the build lock with the game paused (tools/cc.py does this for every build call).",
+    "Map tiles are cheap (~0.1-0.4M): buy land rather than cramming; the outer high-voltage line in the NW blocks roads (pylons around (-2539,1716), (-2614,1833), (-2690,1950))."
+  ],
+  "zones": [
+    {"name": "Downtown", "bbox": [-2500, 400, -1100, 2200], "use": "dense mixed housing, commerce, towers along the x=-1909 avenue", "owner": "housing", "notes": "garbage hotspot (dense housing) - facilities must be <1.5 km away"},
+    {"name": "West residential", "bbox": [-4030, -900, -2500, 2200], "use": "medium/low housing", "owner": "housing"},
+    {"name": "Westpark", "bbox": [-4300, -900, -4030, 1960], "use": "PROTECTED park belt along the x=-4030 road", "owner": "parks"},
+    {"name": "West frontier", "bbox": [-4680, -900, -4300, 2180], "use": "future garden suburb (low density, parks woven in), bought 2030-01", "owner": "housing"},
+    {"name": "North residential", "bbox": [-2300, 2200, -1200, 3410], "use": "housing", "owner": "housing"},
+    {"name": "Claude Park", "bbox": [-1260, 2760, -600, 3420], "use": "PROTECTED park, castle, observation tower, statue, sports", "owner": "parks"},
+    {"name": "University quarter", "bbox": [-2180, 3540, -935, 4675], "use": "education & civic: universities, college, city hall, police HQ, parks", "owner": "civic"},
+    {"name": "NE industry estate", "bbox": [-450, 2800, 900, 3420], "use": "industry (downwind)", "owner": "economy"},
+    {"name": "NE utilities", "bbox": [-400, 3400, 320, 4060], "use": "garbage, landfills, incinerator (downwind)", "owner": "utilities"},
+    {"name": "Office park", "bbox": [-2500, -450, -1100, 400], "use": "offices", "owner": "economy"},
+    {"name": "South quarter", "bbox": [-2200, -940, -1150, -420], "use": "health campus (hospital, research, CIB) + office street z=-870", "owner": "health"},
+    {"name": "Old industry south", "bbox": [-3400, -1400, -1100, -940], "use": "industry - UPWIND of the city: candidate for conversion to offices/clean industry", "owner": "economy"},
+    {"name": "SE utilities", "bbox": [-1560, -2180, -930, -1400], "use": "incinerator SE, recycling (plume drifts over the lake)", "owner": "utilities"},
+    {"name": "SE lakeside", "bbox": [-1150, -900, -600, 300], "use": "lakeside promenade (north part), water treatment plants at x~-690 z -560..-670 (south part)", "owner": "parks"},
+    {"name": "East lakeside", "bbox": [-800, 1500, -300, 2740], "use": "housing + waterfront", "owner": "housing"},
+    {"name": "Water intake", "bbox": [-1300, 900, -600, 2100], "use": "drinking water pumps (clean aquifer + lake intake) - no polluters near", "owner": "utilities"}
+  ]
+}

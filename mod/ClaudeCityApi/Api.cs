@@ -60,9 +60,9 @@ namespace ClaudeCityBridge
                 case "/terrain": return RequireGame() ?? Terrain(p.Body);
                 case "/nets": return RequireGame() ?? Nets(p.QF("x", 0), p.QF("z", 0), p.QF("radius", 500), p.Q("filter"));
                 case "/prefabs": return RequireGame() ?? Prefabs(p.Q("category", "all"), p.Q("filter"), p.Q("unlockedOnly", "false") == "true");
-                case "/road": return RequireGame() ?? Road(p.Body);
+                case "/road": return RequireGame() ?? Safety(Road(p.Body), p.Body);
                 case "/zone": return RequireGame() ?? Zone(p.Body);
-                case "/building": return RequireGame() ?? PlaceBuilding(p.Body);
+                case "/building": return RequireGame() ?? Safety(PlaceBuilding(p.Body), p.Body);
                 case "/buildings": return RequireGame() ?? Buildings(p.QF("x", 0), p.QF("z", 0), p.QF("radius", 1e6f), p.Q("kind", "service"));
                 case "/problems": return RequireGame() ?? Problems(p.Q("type"));
                 case "/save": return RequireGame() ?? new SaveOperation(this, p.Body.Str("name"));
@@ -70,7 +70,7 @@ namespace ClaudeCityBridge
                 case "/budget": return RequireGame() ?? ServiceBudget(p.Body);
                 case "/milestones": return RequireGame() ?? Milestones();
                 case "/zonestats": return RequireGame() ?? ZoneStats();
-                case "/upgrade": return RequireGame() ?? Upgrade(p.Body);
+                case "/upgrade": return RequireGame() ?? Safety(Upgrade(p.Body), p.Body);
                 case "/camera": return RequireGame() ?? Camera(p.Body);
                 case "/share": return RequireGame() ?? Share(p.Body);
                 case "/bulldoze": return RequireGame() ?? Bulldoze(p.Body);
@@ -107,7 +107,7 @@ namespace ClaudeCityBridge
                 case "/freeland": return RequireGame() ?? FreeLand(p);
                 case "/unlockinfo": return RequireGame() ?? UnlockInfo(p.Q("name"));
                 case "/roadupgrades": return RequireGame() ?? RoadUpgrades();
-                case "/roadupgrade": return RequireGame() ?? RoadUpgrade(p.Body);
+                case "/roadupgrade": return RequireGame() ?? Safety(RoadUpgrade(p.Body), p.Body);
                 case "/transitprefabs": return RequireGame() ?? TransitPrefabs();
                 case "/stops": return RequireGame() ?? Stops(p.QF("x", 0), p.QF("z", 0), p.QF("radius", 1e6f), p.Q("type", "bus"));
                 case "/busstop": return RequireGame() ?? BusStop(p.Body);

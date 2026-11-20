@@ -39,7 +39,7 @@ namespace ClaudeCityBridge
         // ------------------------------------------------------------------ obstacle model
 
         const int K_BUILDING = 0, K_OBJECT = 1, K_ROAD = 2, K_NET = 3, K_AREA = 4, K_LIMITS = 5, K_WATER = 6, K_STEEP = 7;
-        static readonly string[] KindNames = { "building", "object", "road", "net", "area", "cityLimits", "water", "steep" };
+        static readonly string[] KindNames = { "building", "object", "road", "net", "area", "cityLimits", "water", "steep", "zonedBuilding" }; // [8] = K_ZONED (Demolish.cs)
         const float OverlapEps = 0.02f;   // penetration needed to count as overlap (game: 0.01 tolerance)
         const float WaterDepthLimit = 0.2f; // CheckSurface: InWater when sampled depth > 0.2 m
 
@@ -115,7 +115,7 @@ namespace ClaudeCityBridge
         }
 
         /// <summary>Obstacles of one search area, bucketed in a uniform grid for rectangle queries.</summary>
-        sealed class ObstSet
+        sealed partial class ObstSet
         {
             public readonly List<Obst> All = new List<Obst>();
             public readonly float2 AreaMin, AreaMax;
@@ -334,7 +334,7 @@ namespace ClaudeCityBridge
         }
 
         /// <summary>Everything in [min,max] that a new object with collision mask <paramref name="bmask"/> would overlap.</summary>
-        ObstSet CollectObstacles(float2 min, float2 max, CollisionMask bmask, TerrainProbe tp, float objHeight)
+        ObstSet CollectObstacles(float2 min, float2 max, CollisionMask bmask, TerrainProbe tp, float objHeight, bool growablesFree = false)
         {
             var set = new ObstSet(min, max, 32f);
 
@@ -350,6 +350,7 @@ namespace ClaudeCityBridge
                 ComponentType.Exclude<Deleted>(), ComponentType.Exclude<Temp>(), ComponentType.Exclude<Hidden>());
             AddObjects(set, topQ, bmask, geoCache);
             AddObjects(set, subQ, bmask, geoCache);
+            AddGrowableObstacles(set, bmask, geoCache, growablesFree); // growables (Overridable, skipped above): obstacles unless growables=free
 
             // --- nets: edge halves and the node pieces belonging to each edge
             var nq = em.CreateEntityQuery(ComponentType.ReadOnly<NetEdge>(), ComponentType.ReadOnly<Curve>(), ComponentType.ReadOnly<PrefabRef>(),
@@ -591,7 +592,7 @@ namespace ClaudeCityBridge
             float lotSpan = math.length(spec.Local.max - spec.Local.min);
             float reach = radius + depth + lotSpan + 48f;
             var tp = Probe();
-            var obs = CollectObstacles(c - reach, c + reach, spec.Mask, tp, spec.Height);
+            var obs = CollectObstacles(c - reach, c + reach, spec.Mask, tp, spec.Height, GrowablesFree(p));
             long msCollect = sw.ElapsedMilliseconds;
 
             // road edges to slide along
@@ -768,6 +769,7 @@ namespace ClaudeCityBridge
                     d["buildingXZ"] = xz;
                 }
                 else d["building"] = xz; // dead end: free placement only
+                AddGrowableHits(d, obs, ref s.Rect);
                 cands.Add(d);
             }
 
@@ -787,6 +789,7 @@ namespace ClaudeCityBridge
             if (spec.SkipWater) r["note"] = "prefab is a shoreline/floating/underwater object: the no-water rule was not applied";
             if (cands.Count == 0)
                 r["hint"] = "nothing fits along roads within radius: see 'rejected' for what blocks it; try a larger radius, side=, deadEnds=1, maxSteepPct=100, or GET /freeland to find empty land and build an access road into it";
+            NoteGrowables(r, obs);
             return r;
         }
 
@@ -830,7 +833,7 @@ namespace ClaudeCityBridge
             int N = (int)math.ceil(2 * radius / cell);
             var g0 = c - N * cell * 0.5f;
             var tp = Probe();
-            var obs = CollectObstacles(g0 - cell, g0 + N * cell + cell, (CollisionMask)11, tp, objHeight);
+            var obs = CollectObstacles(g0 - cell, g0 + N * cell + cell, (CollisionMask)11, tp, objHeight, GrowablesFree(p));
 
             // lattice of cell corners: owned / wet / height
             var owned = new List<float2[]>();
@@ -979,6 +982,7 @@ namespace ClaudeCityBridge
                     if (lotM.x <= wm + 0.01f && lotM.y <= dm + 0.01f) ((List<object>)d["lotFacing"]).AddRange(new object[] { "north", "south" });
                     if (lotM.y <= wm + 0.01f && lotM.x <= dm + 0.01f) ((List<object>)d["lotFacing"]).AddRange(new object[] { "east", "west" });
                 }
+                AddGrowableHits(d, obs, mn, mx);
                 rects.Add(d);
             }
 
@@ -991,6 +995,7 @@ namespace ClaudeCityBridge
                 { "usage", "rects are axis-aligned, largest first (each excludes the earlier ones). size = [x extent, z extent] m; lotCells = how many 8 m lot cells fit. touchesRoad: a frontable road runs along that side (roadSides = cells of contact); otherwise nearestRoad says where an access road could start." },
             };
             if (haveLot) res["lot"] = new Dictionary<string, object> { { "prefab", lotName }, { "metres", XZ(lotM, 0) } };
+            NoteGrowables(res, obs);
             if (QFlag(p, "grid"))
             {
                 const string labels = "123456789ABCDEFGHIJK";
@@ -1005,6 +1010,7 @@ namespace ClaudeCityBridge
                         if (label[k] > 0) ch = labels[label[k] - 1];
                         else if (road[k]) ch = '#';
                         else if (occ[k] == K_ROAD || occ[k] == K_NET) ch = '=';
+                        else if (occ[k] == K_ZONED) ch = 'Z';
                         else if (occ[k] == K_BUILDING) ch = 'B';
                         else if (occ[k] == K_OBJECT) ch = 'o';
                         else if (occ[k] == K_AREA) ch = 'a';
@@ -1016,7 +1022,7 @@ namespace ClaudeCityBridge
                     }
                     sb.Append('\n');
                 }
-                res["legend"] = "1-9,A.. = rect rank | . free | # road (frontable) | = other net/highway | B building | o object | a area | , not owned | ~ water | ^ steep; row 0 = north, row label = z of cell centre, column 0 = x0";
+                res["legend"] = "1-9,A.. = rect rank | . free | # road (frontable) | = other net/highway | Z zoned (growable) building | B building | o object | a area | , not owned | ~ water | ^ steep; row 0 = north, row label = z of cell centre, column 0 = x0";
                 res["grid"] = sb.ToString();
             }
             return res;

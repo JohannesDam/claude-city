@@ -87,7 +87,7 @@ export const TOOLS = [
       points: { type: 'array', items: point, minItems: 2 },
       snap: num('snap distance in metres to existing nodes/edges (default 8)'),
       maxSegment: num('long straight parts are split into segments of at most this length so they follow terrain (default 96)'),
-      dryRun: { type: 'boolean' },
+      allowDemolish: { type: 'boolean', description: 'false = refuse the build if it would remove zoned buildings (homes/shops/offices); result lists them in wouldDemolish either way' }, dryRun: { type: 'boolean' },
     }, ['prefab', 'points']),
     http: ['POST', '/road'],
   },
@@ -108,7 +108,7 @@ export const TOOLS = [
   },
   {
     name: 'cs2_place_building',
-    description: 'Place a service building / park / plopable prefab through the game tool pipeline (normal cost and validation). Give a road segment id (edge), t along it and side: the building is placed against that road, facing it. Or give x,z,angle (deg; 0 = front facing +z) for free placement. Returns cost, errors (e.g. Overlap Existing, No Groundwater), placedId and roadConnected. Use dryRun to try spots.',
+    description: 'Place a service building / park / plopable prefab through the game tool pipeline (normal cost and validation). Give a road segment id (edge), t along it and side: the building is placed against that road, facing it. Or give x,z,angle (deg; 0 = front facing +z) for free placement. Returns cost, errors (e.g. Overlap Existing, No Groundwater), placedId and roadConnected. Use dryRun to try spots. Results also list wouldDemolish (zoned buildings the build removes) and conflicts (what blocks an Overlap Existing).',
     inputSchema: obj({
       prefab: str('Building prefab name, e.g. "Coal Power Plant01"'),
       edge: num('road segment id to attach to'),
@@ -116,7 +116,7 @@ export const TOOLS = [
       side: str('"left" or "right" of the segment direction (default left)'),
       gap: num('extra metres between road edge and lot (default 0.5)'),
       x: num('free placement x'), z: num('free placement z'), angle: num('degrees, free placement'),
-      dryRun: { type: 'boolean' },
+      allowDemolish: { type: 'boolean', description: 'false = refuse the build if it would remove zoned buildings (homes/shops/offices); result lists them in wouldDemolish either way' }, dryRun: { type: 'boolean' },
     }, ['prefab']),
     http: ['POST', '/building'],
   },
@@ -147,7 +147,7 @@ export const TOOLS = [
   {
     name: 'cs2_upgrade_road',
     description: 'Replace existing road segments with another road prefab (e.g. Small Road -> Medium Road), like the road tool replace mode. Keep batches small (<=4 segments) and build while paused.',
-    inputSchema: obj({ prefab: str('target net prefab'), edges: { type: 'array', items: { type: 'string' } }, dryRun: { type: 'boolean' } }, ['prefab', 'edges']),
+    inputSchema: obj({ prefab: str('target net prefab'), edges: { type: 'array', items: { type: 'string' } }, allowDemolish: { type: 'boolean', description: 'false = refuse the build if it would remove zoned buildings (homes/shops/offices); result lists them in wouldDemolish either way' }, dryRun: { type: 'boolean' } }, ['prefab', 'edges']),
     http: ['POST', '/upgrade'],
   },
   {
@@ -257,19 +257,19 @@ export const TOOLS = [
   {
     name: 'cs2_find_spot',
     description: 'Where does a building fit? Ranked placements along roads near (x,z) from an occupancy model (buildings, roads, water, slope, city limits). Pass candidates[i].building to cs2_place_building.',
-    inputSchema: obj({ prefab: str('building prefab'), x: num(''), z: num(''), radius: num('max 1000'), n: num('candidates, default 5') }, ['prefab', 'x', 'z']),
+    inputSchema: obj({ prefab: str('building prefab'), growables: str('obstacle (default: zoned buildings block) | free (old behaviour; candidates list wouldDemolish)'), x: num(''), z: num(''), radius: num('max 1000'), n: num('candidates, default 5') }, ['prefab', 'x', 'z']),
     http: ['GET', '/findspot'],
   },
   {
     name: 'cs2_free_land',
     description: 'Largest free rectangles (owned, dry, unoccupied) near (x,z), with road contact; optionally only those a prefab fits in.',
-    inputSchema: obj({ x: num(''), z: num(''), radius: num(''), prefab: str('optional'), n: num(''), grid: num('1 = include ASCII grid') }, ['x', 'z']),
+    inputSchema: obj({ growables: str('obstacle (default: zoned buildings block) | free (old behaviour; candidates list wouldDemolish)'), x: num(''), z: num(''), radius: num(''), prefab: str('optional'), n: num(''), grid: num('1 = include ASCII grid') }, ['x', 'z']),
     http: ['GET', '/freeland'],
   },
   {
     name: 'cs2_road_upgrade',
     description: 'Apply (or remove) a road upgrade such as Trees, Grass, Wide Sidewalk, Sound Barrier, Lighting, Bikelane to road edges. side: both|left|right|middle (left/right relative to edge direction).',
-    inputSchema: obj({ edges: { type: 'array', items: { type: 'string' } }, upgrade: str('e.g. Trees'), side: str('both|left|right|middle'), remove: { type: 'boolean' }, dryRun: { type: 'boolean' } }, ['edges', 'upgrade']),
+    inputSchema: obj({ edges: { type: 'array', items: { type: 'string' } }, upgrade: str('e.g. Trees'), side: str('both|left|right|middle'), remove: { type: 'boolean' }, allowDemolish: { type: 'boolean', description: 'false = refuse the build if it would remove zoned buildings (homes/shops/offices); result lists them in wouldDemolish either way' }, dryRun: { type: 'boolean' } }, ['edges', 'upgrade']),
     http: ['POST', '/roadupgrade'],
     timeoutMs: 120000,
   },

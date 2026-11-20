@@ -37,14 +37,21 @@ def get(path, **q):
 BUILD_PATHS = {"/road", "/zone", "/building", "/upgrade", "/bulldoze", "/buytile", "/roadupgrade", "/busstop", "/busline"}
 
 
+# builds that may remove zoned buildings (homes, shops, offices, factories) refuse to do so unless the caller passes
+# allowDemolish=True (urban renewal); the API reports them in "wouldDemolish" either way
+DEMOLISH_GUARDED = {"/road", "/building", "/upgrade", "/roadupgrade"}
+
+
 def post(path, body=None, **q):
+    if path in DEMOLISH_GUARDED and isinstance(body, dict) and "allowDemolish" not in body:
+        body = {**body, "allowDemolish": False}
     if path in BUILD_PATHS and not paused.held():
         with paused():
             return call("POST", path, body or {}, **q)
     return call("POST", path, body or {}, **q)
 
 
-def short(d, keys=("applied", "cost", "errors", "problems", "placedId", "roadConnected", "error", "warning")):
+def short(d, keys=("applied", "cost", "errors", "problems", "placedId", "roadConnected", "error", "warning", "blocked", "wouldDemolish", "conflicts")):
     return {k: d.get(k) for k in keys if d.get(k) is not None}
 
 

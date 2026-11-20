@@ -70,6 +70,12 @@ the start of your shift; it replaces the per-round worker prompt of the old coun
   trains cannot reverse at a dead-end track, so every line end needs a loop. `/lines` can say complete while a
   segment fails pathfinding: check `/problems` for Pathfind Failed / Track Not Connected after building a line.
 
+## New districts: utilities before buildings
+
+In a new district, lay water and sewage pipes (and check power) along the spine BEFORE zoning or placing
+buildings; otherwise every new building shows Water/Sewage notifications and stalls (East Bank, 2032-01). Check
+`GET /problems?type=Water Notification` and `Sewage Notification` after zoning.
+
 ## Done means working
 
 - `roadConnected` only checks the lot's front centre. After the game has run a moment, call

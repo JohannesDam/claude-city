@@ -14,6 +14,8 @@ BASE = "http://127.0.0.1:8787"
 
 def call(method, path, body=None, timeout=180, **query):
     query.setdefault("timeout", int(timeout * 1000) - 2000)
+    if BUILD_LOCK.token and path not in ("/lock", "/unlock"):
+        query.setdefault("lock", BUILD_LOCK.token)  # renews the lease; lets build calls through the busy tone
     url = BASE + path
     if query:
         url += "?" + urllib.parse.urlencode({k: v for k, v in query.items() if v is not None})
@@ -34,7 +36,8 @@ def get(path, **q):
 
 
 # endpoints that change the city: they always run while holding the build lock with the game paused
-BUILD_PATHS = {"/road", "/zone", "/building", "/upgrade", "/bulldoze", "/buytile", "/roadupgrade", "/busstop", "/busline"}
+BUILD_PATHS = {"/road", "/zone", "/building", "/upgrade", "/bulldoze", "/buytile", "/roadupgrade", "/busstop", "/busline",
+               "/nodeupgrade", "/roundabout", "/extension", "/area", "/area/delete", "/buildingaction"}
 
 
 # builds that may remove zoned buildings (homes, shops, offices, factories) refuse to do so unless the caller passes
@@ -47,8 +50,14 @@ def post(path, body=None, **q):
         body = {**body, "allowDemolish": False}
     if path in BUILD_PATHS and not paused.held():
         with paused():
-            return call("POST", path, body or {}, **q)
-    return call("POST", path, body or {}, **q)
+            return post(path, body, **q)
+    res = call("POST", path, body or {}, **q)
+    if isinstance(res, dict) and res.get("busy") and paused.held():
+        # our lease expired (no call for TTL seconds) and somebody else builds now: queue again, retry once
+        print("[cc] lost the build lock (lease expired), queueing again", file=sys.stderr, flush=True)
+        BUILD_LOCK.server_acquire()
+        res = call("POST", path, body or {}, **q)
+    return res
 
 
 def short(d, keys=("applied", "cost", "errors", "problems", "placedId", "roadConnected", "error", "warning", "blocked", "wouldDemolish", "conflicts")):
@@ -82,22 +91,53 @@ def upgrade(prefab, edges, **kw):
 
 
 class _BuildLock:
-    """Cross-process build lock (several council workers may plan in parallel, but only one may build at a
-    time: concurrent/rapid builds crashed the game natively). Uses an OS file lock, so a crashed holder
-    releases it automatically. Re-entrant within one process."""
+    """Build lock: only one builder changes the city at a time (concurrent/rapid builds crashed the game).
+    Two layers, taken in this order:
+      1. the server lock in the mod ("busy tone"; GET /lock shows who builds and who waits): first come,
+         first served, a lease renewed by every call (the token rides along as ?lock=...);
+      2. an OS file lock (logs/build.lock): keeps cc users exclusive even across game restarts.
+    Re-entrant within one process. Think/plan OUTSIDE the lock; hold it only for the actual change."""
     PATH = __import__("os").path.join(__import__("os").path.dirname(__import__("os").path.abspath(__file__)), "..", "logs", "build.lock")
+    TTL = 120
 
     def __init__(self):
         self.depth = 0
         self.fh = None
+        self.token = None
+        self.who = None
 
-    def acquire(self, who=None, poll=0.5):
+    def server_acquire(self, who=None, poll=0.5):
+        """Queue for the server lock until granted. Degrades to no server lock when the game or plugin is
+        down / too old (the build calls themselves then fail or are unguarded, as before)."""
+        import os
+        import time as _t
+        who = who or self.who or os.path.basename(sys.argv[0])
+        self.who = who
+        self.token = None
+        ticket, t0, last_note = None, _t.time(), 0.0
+        while True:
+            try:
+                r = call("POST", "/lock", {"who": who, "ttl": self.TTL, **({"ticket": ticket} if ticket else {})}, timeout=20)
+            except Exception:
+                return None
+            if not isinstance(r, dict) or "granted" not in r:
+                return None
+            if r["granted"]:
+                self.token = r["token"]
+                return self.token
+            ticket = r.get("ticket")
+            waited = _t.time() - t0
+            if waited - last_note >= 60:
+                last_note = waited
+                h = r.get("holder") or {}
+                print(f"[cc] waiting for build lock ({int(waited)} s, position {r.get('position')}, holder {h.get('who')})",
+                      file=sys.stderr, flush=True)
+            _t.sleep(poll)
+
+    def _file_acquire(self, who, blocking=True, poll=0.5):
         import msvcrt
         import os
         import time as _t
-        if self.depth:
-            self.depth += 1
-            return
         os.makedirs(os.path.dirname(self.PATH), exist_ok=True)
         fh = open(self.PATH, "a+")
         waited = 0.0
@@ -107,49 +147,80 @@ class _BuildLock:
                 msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
                 break
             except OSError:
+                if not blocking:
+                    fh.close()
+                    return False
                 _t.sleep(poll)
                 waited += poll
                 if waited and int(waited) % 60 == 0 and waited == int(waited):
-                    print(f"[cc] waiting for build lock ({int(waited)} s)", file=sys.stderr, flush=True)
+                    print(f"[cc] waiting for build file lock ({int(waited)} s)", file=sys.stderr, flush=True)
         self.fh = fh
-        self.depth = 1
         try:
             with open(self.PATH + ".holder", "w") as h:
                 h.write(f"{os.getpid()} {who or os.path.basename(sys.argv[0])} {_t.strftime('%H:%M:%S')}\n")
         except OSError:
             pass
+        return True
+
+    def acquire(self, who=None, poll=0.5):
+        if self.depth:
+            self.depth += 1
+            return
+        self.server_acquire(who, poll)
+        self._file_acquire(who, True, poll)
+        self.depth = 1
 
     def try_acquire(self, who=None):
-        """Non-blocking: True (and held) when the lock was free, False when another process builds."""
-        import msvcrt
-        import os
+        """Non-blocking: True (and held) when nobody builds or waits, False otherwise."""
         if self.depth:
             self.depth += 1
             return True
-        os.makedirs(os.path.dirname(self.PATH), exist_ok=True)
-        fh = open(self.PATH, "a+")
         try:
-            fh.seek(0)
-            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
-        except OSError:
-            fh.close()
+            r = call("POST", "/lock", {"who": who or "try", "ttl": self.TTL, "noQueue": True}, timeout=20)
+        except Exception:
+            r = None
+        if isinstance(r, dict) and "granted" in r:
+            if not r["granted"]:
+                return False
+            self.token = r["token"]
+        if not self._file_acquire(who, blocking=False):
+            self._server_release()
             return False
-        self.fh = fh
         self.depth = 1
         return True
+
+    def queue_length(self):
+        """How many builders wait for the server lock (0 when unknown)."""
+        try:
+            r = call("GET", "/lock", timeout=10)
+            return len(r.get("queue") or []) if isinstance(r, dict) else 0
+        except Exception:
+            return 0
+
+    def _server_release(self):
+        tok, self.token = self.token, None
+        if tok:
+            try:
+                call("POST", "/unlock", {"token": tok}, timeout=10)
+            except Exception:
+                pass
 
     def release(self):
         import msvcrt
         if not self.depth:
             return
         self.depth -= 1
-        if self.depth == 0 and self.fh:
+        if self.depth == 0:
             try:
-                self.fh.seek(0)
-                msvcrt.locking(self.fh.fileno(), msvcrt.LK_UNLCK, 1)
+                if self.fh:
+                    try:
+                        self.fh.seek(0)
+                        msvcrt.locking(self.fh.fileno(), msvcrt.LK_UNLCK, 1)
+                    finally:
+                        self.fh.close()
+                        self.fh = None
             finally:
-                self.fh.close()
-                self.fh = None
+                self._server_release()
 
 
 BUILD_LOCK = _BuildLock()
@@ -176,7 +247,8 @@ class paused:
 
     def __exit__(self, *exc):
         try:
-            if self.outer:
+            # another builder already queued: leave the game paused for them (no pause/resume churn)
+            if self.outer and not BUILD_LOCK.queue_length():
                 call("POST", "/speed", {"speed": 3})
         finally:
             BUILD_LOCK.release()

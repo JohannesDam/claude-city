@@ -430,6 +430,18 @@ export const TOOLS = [
     timeoutMs: 140000,
   },
   {
+    name: 'cs2_districts',
+    description: 'The city per district: residents, households, happiness/wellbeing/health, companies, workplaces, workers, buildings by zone and by service, abandoned/condemned; buildings outside any district under "(no district)".',
+    inputSchema: obj({ detail: str('"0" drops the per-zone/per-service maps') }),
+    http: ['GET', '/districts'],
+  },
+  {
+    name: 'cs2_lock_status',
+    description: 'The build lock ("busy tone"): who is building now, who waits in the queue, and utilisation stats. Build tools get HTTP 423 busy while another builder holds the lock.',
+    inputSchema: obj({}),
+    http: ['GET', '/lock'],
+  },
+  {
     name: 'cs2_resources',
     description: 'Natural resource map (fertility, forest, ore, oil, fish): grids, best spots in owned land, best owned/unowned tiles.',
     inputSchema: obj({ x: num(''), z: num(''), radius: num(''), cell: num(''), resource: str('fertility,forest,ore,oil,fish or all') }),

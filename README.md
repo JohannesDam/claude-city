@@ -10,6 +10,14 @@ Claude ──MCP (stdio)──> mcp/server.mjs ──HTTP 127.0.0.1:8787──> 
                                                                   └─ API plugin (ModsData/)  endpoints, hot-reloadable
 ```
 
+## How the city gets built
+
+Building is split over agents: a conductor (the main Claude session), a read-only advisory board that writes
+goal-level work items per district, long-lived district builders and a troubleshooter that work through them
+continuously, and a first-come-first-served build lock in the mod (the "busy tone") so only one of them changes
+the map at a time. See [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md); builders follow
+[docs/council/builder_handbook.md](docs/council/builder_handbook.md).
+
 ## Pieces
 
 | Path | What |

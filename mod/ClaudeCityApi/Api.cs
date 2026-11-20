@@ -43,8 +43,12 @@ namespace ClaudeCityBridge
 
         public object Dispatch(Pending p)
         {
+            var busy = LockGate(p);
+            if (busy != null) return busy;
             switch (p.Path)
             {
+                case "/lock": return p.Method == "POST" ? LockAcquire(p) : LockStatus();
+                case "/unlock": return LockRelease(p);
                 case "/status": return Status();
                 case "/maps": return Maps();
                 case "/newgame": return NewGame(p.Body);
@@ -128,6 +132,7 @@ namespace ClaudeCityBridge
                 case "/wind": return RequireGame() ?? WindEndpoint(p);
                 case "/tourism": return RequireGame() ?? TourismEndpoint(p);
                 case "/deathcare": return RequireGame() ?? DeathcareMeasure(p);
+                case "/districts": return RequireGame() ?? DistrictStatsEndpoint(p);
                 default: return new ApiError("unknown endpoint " + p.Path, 404);
             }
         }

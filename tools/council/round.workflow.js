@@ -17,7 +17,7 @@ const API = `
 - HTTP bridge http://127.0.0.1:8787. Python client C:\\soft\\cityskyline\\tools\\cc.py. Use it from Python:
   import sys; sys.path.insert(0, r"C:\\soft\\cityskyline\\tools"); from cc import get, post, paused, road, zone, building, upgrade, place_smart, find_spot, fit, short
   or CLI: cd C:/soft/cityskyline/tools && python -I cc.py get "/findspot?prefab=Hospital01&x=-1600&z=-560&radius=600"
-- READ (GET): /city, /happiness, /problems?type=, /hotspots?type=&cell=, /services?kind=garbage|deathcare|healthcare|police|fire|education|post|park|all&brief=1, /coverage?service=Park|Healthcare|Police|FireRescue|Education|PostService&layer=homes, /zonestats, /map?x=&z=&size=&cell= (ASCII map, legend included), /nets?x=&z=&radius=&filter=, /buildings?kind=service|all|destroyed|abandoned&x=&z=&radius=, /prefabs?category=zones|roads|services|buildings|signature&filter=&unlockedOnly=true, /unlockinfo?name=, /findspot?prefab=&x=&z=&radius=&n= (ranked placements; candidates[i].building can be passed to /building), /freeland?x=&z=&radius=&prefab=, /pollution, /groundwater, /tiles, /devtree, /lines, /stops, /roadupgrades, /transitprefabs, /budget, /taxes.
+- READ (GET): /city, /happiness, /problems?type=, /hotspots?type=&cell=, /services?kind=garbage|deathcare|healthcare|police|fire|education|post|park|all&brief=1, /coverage?service=Park|Healthcare|Police|FireRescue|Education|PostService&layer=homes, /zonestats, /map?x=&z=&size=&cell= (ASCII map, legend included), /nets?x=&z=&radius=&filter=, /buildings?kind=service|all|destroyed|abandoned&x=&z=&radius=, /prefabs?category=zones|roads|services|buildings|signature&filter=&unlockedOnly=true, /unlockinfo?name=, /findspot?prefab=&x=&z=&radius=&n= (ranked placements; candidates[i].building can be passed to /building), /freeland?x=&z=&radius=&prefab=, /pollution, /groundwater, /tiles, /devtree, /lines, /stops, /roadupgrades, /transitprefabs, /budget, /taxes, /demand (demand per zone with the game's factor breakdown), /jobs (workplaces vs job seekers per education level), /finance (income/expense per source), /stats?names=Population,Unemployed&n=12, /education (eligible vs seats per level, possible classroom extensions), /extensions?owner=<building id> or ?filter=School&onlyBuildable=1 (service building upgrades), /services?kind=electricity|water|telecom|roads (utility and road-maintenance status), /stuck (traffic penalty causes, unreachable buildings, failed paths), /landvalue, /crime, /levels (building levels, waiting for materials), /signatures (signature buildings unlocked/placed), /policies, /modifiers, /fees, /taxes2.
 - BUILD (Python; every build call takes the cross-process build lock and pauses the game by itself; wrap a batch in \`with paused("<dept>"):\` to hold the lock for the whole batch, keep each batch under ~3 minutes):
   road(prefab, [[x,z],...]) - straight polyline, build long roads segment by segment if "Invalid Shape";
   zone(zoneName, mode="rect", points=[[x0,z0],[x1,z1]], overwrite=False) or zone(zoneName, mode="road", edges=[ids], depth=1..6, side="both|left|right");
@@ -25,9 +25,11 @@ const API = `
   fit(label, prefab, (x0,x1,z0,z1), near=(x,z)) - tries all road segments in a box; upgrade(prefab, edges) - replace road type (batches of <=4 edges);
   post("/roadupgrade", {"edges":[ids], "upgrade":"Trees|Grass|Wide Sidewalk|Sound Barrier|Lighting|Bikelane", "side":"both"}) - trees/grass on both sides halve road noise;
   post("/busline", {"stops":[{"x":..,"z":..},...], "color":"#RRGGBB", "stopPrefab":"NA_BusStop01"}, timeout=300) - closed loop; right-hand traffic, so for a two-way route put outbound stops on one side and return stops on the other (x/z offset ~7 m from the road centre picks the side); bus depots exist south (-1450,-870) and north (-1150,4100); line 1 (red) runs along x=-1909;
-  post("/bulldoze", {"ids":[...]}); post("/buytile", {"x":..,"z":..}) (~0.1-0.4M per 623 m tile; check /tiles); post("/devtree", {"node": name}) ONLY if your approved proposal lists dev points.
+  post("/bulldoze", {"ids":[...]}); post("/buytile", {"x":..,"z":..}) (~0.1-0.4M per 623 m tile; check /tiles); post("/devtree", {"node": name}) ONLY if your approved proposal lists dev points;
+  post("/extension", {"owner": "<building id>", "prefab": "<upgrade name or substring>", "side": "auto"}, timeout=120) - build a service-building upgrade/extension (classrooms, gymnasium, extra garage, city hall wings...); dry run first;
+  post("/buildingaction", {"id": .., "action": "outOfService|emptying|historical", "on": true}).
   Every build call accepts "dryRun": True. Results: applied, cost, errors, problems (e.g. "Overlap Existing", "Exceeds City Limits", "Invalid Shape").
-- NEVER POST /reload, /speed, /save, /load, /newgame, /ui, /taxes, /budget (mayor only). Never bulldoze other departments' buildings or anything in a PROTECTED zone. Coordinates: x east, z north, metres. Wind blows SW->NE.
+- NEVER POST /reload, /speed, /save, /load, /newgame, /ui, /taxes, /taxes2, /budget, /fees, /policy, /loan (mayor only - put such ideas in a proposal's actions as 'mayor:' items). Never bulldoze other departments' buildings or anything in a PROTECTED zone. Coordinates: x east, z north, metres. Wind blows SW->NE.
 - Knowledge: C:\\soft\\cityskyline\\docs\\council\\domains.md (your section + "Citizens & wellbeing" for happiness formulas), C:\\soft\\cityskyline\\docs\\council\\masterplan.json (zones, owners, rules), C:\\soft\\cityskyline\\logs\\council\\brief.json (this round's snapshot: finance, happiness, tickets, services, coverage), C:\\soft\\cityskyline\\logs\\desk\\<department>.json (your complaint tickets with hotspots).
 `
 
@@ -47,6 +49,9 @@ const DEPTS = [
   { key: 'mobility', title: 'Alderman of Transport', section: '## 9. Mobility', zones: 'roads everywhere; coordinate with zone owners for new roads inside their zones',
     focus: 'Traffic penalty -0.8, ~36 bottlenecks (hotspots in logs/desk/mobility.json). Build a real bus network (line 1 exists along x=-1909; design 3-5 more lines connecting homes, jobs and the university quarter), more bus depots if needed, road maintenance depots (maintenance backlog is mostly road wear; only one road depot), roundabouts/hierarchy fixes at the worst hotspots. Train (TrainNode 1 dev point) and cargo rail are strategic options.' },
 ]
+
+// per-round focus from the mayor overrides the defaults above
+if (args.focus) for (const d of DEPTS) if (args.focus[d.key]) d.focus = args.focus[d.key]
 
 const PROPOSALS = {
   type: 'object',
@@ -70,8 +75,12 @@ const PROPOSALS = {
           impact: { type: 'integer', minimum: 1, maximum: 5 },
           urgency: { type: 'integer', minimum: 1, maximum: 5 },
           risks: { type: 'string' },
+          sites: {
+            type: 'array', description: 'every piece of land this project builds on (lots, new roads, zoned areas) as axis-aligned boxes in metres; [] for non-spatial projects (policies, line changes, upgrades of existing buildings)',
+            items: { type: 'object', properties: { x0: { type: 'number' }, x1: { type: 'number' }, z0: { type: 'number' }, z1: { type: 'number' }, what: { type: 'string' } }, required: ['x0', 'x1', 'z0', 'z1'] },
+          },
         },
-        required: ['id', 'title', 'kind', 'why', 'where', 'actions', 'capex', 'upkeepPerMonth', 'devPoints', 'impact', 'urgency'],
+        required: ['id', 'title', 'kind', 'why', 'where', 'actions', 'capex', 'upkeepPerMonth', 'devPoints', 'impact', 'urgency', 'sites'],
       },
     },
   },
@@ -110,16 +119,16 @@ Your zones (masterplan): ${d.zones}.
 Focus for this round: ${d.focus}
 
 Do this (READ-ONLY: GET requests and reading files only - no builds, no dry runs, no POST at all):
-1. Read your handbook section in C:\\soft\\cityskyline\\docs\\council\\domains.md (${d.section}), the masterplan, the brief (logs/council/brief.json) and your tickets (logs/desk/${d.key === 'health_safety' ? 'health.json and logs/desk/safety.json' : d.key === 'parks' ? 'environment.json' : d.key + '.json'}).
+1. Read your handbook section in C:\\soft\\cityskyline\\docs\\council\\domains.md (${d.section}), the masterplan, the brief (logs/council/brief.json), the follow-ups addressed to you by earlier crews (logs/council/followups.json: key "${d.key}" plus items under other keys that mention your domain), the land already used (logs/council/sites.jsonl) and your tickets (logs/desk/${d.key === 'health_safety' ? 'health.json and logs/desk/safety.json' : d.key === 'parks' ? 'environment.json' : d.key + '.json'}).
 2. Investigate with GETs (map, coverage, services, findspot/freeland to check that sites really exist). Be efficient (~25 tool calls).
 3. Propose 2-5 projects, ranked, at least one of them big/strategic if it is justified. Each must be concrete enough for a worker to execute without guessing (prefab names from /prefabs, coordinates checked against /map or /findspot, order of steps). Estimate capex and monthly upkeep honestly. The whole council shares $${(FIN.envelope / 1e6).toFixed(1)}M and $${(FIN.upkeepCap / 1e6).toFixed(1)}M/month of new upkeep this round, and ${FIN.devPoints} development points.
 ${API}`,
   { label: `plan:${d.key}`, phase: 'Plan', schema: PROPOSALS },
-)))).filter(Boolean)
+)))).map((p, i) => p && { ...p, department: DEPTS[i].key }).filter(Boolean)
 
 phase('Allocate')
 const all = []
-for (const p of plans) for (const x of p.proposals || []) all.push({ ...x, department: p.department && DEPTS.find(d => d.key === p.department) ? p.department : (DEPTS.find(d => p.department && p.department.toLowerCase().includes(d.key.split('_')[0]))?.key || p.department) })
+for (const p of plans) for (const x of p.proposals || []) all.push({ ...x, department: p.department })
 const prio = x => 3 * x.urgency + 2 * x.impact + (x.kind === 'fix' ? 3 : 0) + (x.kind === 'strategic' ? 1 : 0) - Math.min(5, (x.capex || 0) / 5e6)
 all.sort((a, b) => prio(b) - prio(a))
 let cash = FIN.envelope, upkeep = FIN.upkeepCap, points = FIN.devPoints
@@ -131,6 +140,21 @@ for (const x of all) {
     approved.push(x); perDept[x.department] = n + 1
     cash -= x.capex || 0; upkeep -= x.upkeepPerMonth || 0; points -= x.devPoints || 0
   } else deferred.push(x)
+}
+// site reservation: approved projects are ranked by priority; a lower-ranked project whose land overlaps a higher-ranked one
+// (other department) must find another site - the mayor tells its crew which land is reserved
+const overlap = (a, b) => Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) > 8 && Math.min(a.z1, b.z1) - Math.max(a.z0, b.z0) > 8
+const norm = b => ({ x0: Math.min(b.x0, b.x1), x1: Math.max(b.x0, b.x1), z0: Math.min(b.z0, b.z1), z1: Math.max(b.z0, b.z1), what: b.what })
+for (let i = 0; i < approved.length; i++) {
+  const x = approved[i]
+  x.reservedByOthers = []
+  for (let j = 0; j < i; j++) {
+    const y = approved[j]
+    if (y.department === x.department) continue
+    for (const a of (x.sites || []).map(norm)) for (const b of (y.sites || []).map(norm))
+      if (overlap(a, b)) x.reservedByOthers.push({ project: y.title, department: y.department, box: b })
+  }
+  if (x.reservedByOthers.length) log(`  ! site conflict: [${x.department}] ${x.id} overlaps ${[...new Set(x.reservedByOthers.map(r => r.department + ':' + r.project.slice(0, 40)))].join('; ')}`)
 }
 log(`Approved ${approved.length}/${all.length} proposals; capex $${((FIN.envelope - cash) / 1e6).toFixed(1)}M, upkeep $${((FIN.upkeepCap - upkeep) / 1e6).toFixed(2)}M/month, ${FIN.devPoints - points} dev points`)
 for (const x of approved) log(`  + [${x.department}] ${x.title} ($${((x.capex || 0) / 1e6).toFixed(2)}M)`)
@@ -150,6 +174,8 @@ Execute them now in the live game:
 - Write one Python script per project (or one for all) at C:\\soft\\cityskyline\\tools\\council\\r${R}_${dep}_<project>.py, run it with: cd C:/soft/cityskyline/tools && python -I council/<file>.py (Bash timeout 600000). Keep every \`with paused("${dep}"):\` batch short; another crew may be waiting for the build lock. Print results with short(...).
 - Check every site again right before building (dry runs, /findspot) - the city changed since planning. Adapt sensibly when a step fails (alternative site nearby, smaller variant) but stay within the approved capex (+10%) and the project's intent. Respect masterplan zones (no building in other departments' protected zones).
 - Verify afterwards (GET /buildings, /lines, /coverage, /services...) that it works (e.g. roadConnected true; line complete; coverage improved).
+- Site ledger: before building read C:\soft\cityskyline\logs\council\sites.jsonl (land used by earlier crews and rounds) and each project's "reservedByOthers" (land of higher-ranked projects of other departments this round - do NOT build there, pick another site). After building, append one JSON line per site you used: {"round": ${R}, "department": "${dep}", "project": "<id>", "x0":..,"x1":..,"z0":..,"z1":.., "what": "<prefab or road/zone>", "ids": [..]}.
+- Lessons from round 1: /findspot, /freeland and /building dry runs treat zoned (growable) buildings as free - the game silently demolishes homes/shops under a new lot or road. Before building on land that is not obviously empty, list /buildings?kind=all around it (or use any 'wouldDemolish'/'growables' option the API now offers) and avoid lots of zoned buildings unless demolition is part of the approved plan. Edge ids change when neighbouring roads/buildings are built: re-read ids from /nets right before each call. /nets returns at most ~200 segments per call: scan large areas in windows.
 - Do not touch anything not related to your approved projects.
 Report per project: status, money spent, what was built where; follow-ups for the next round; and interface gaps (things you needed but the API could not do).
 ${API}`,

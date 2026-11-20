@@ -229,14 +229,17 @@ def edge_near(x, z, filt=None, radius=40):
 FIT_TS = (0.5, 0.35, 0.65, 0.2, 0.8, 0.05, 0.95)
 
 
-def segs_in(x0, x1, z0, z1, filt="Road"):
-    """Road segments (no highways) whose midpoint lies inside the box."""
+def segs_in(x0, x1, z0, z1, filt="Road", highways=None):
+    """Road segments whose midpoint lies inside the box. Highways are skipped unless the filter names one
+    (filt="Highway...") or highways=True."""
+    if highways is None:
+        highways = "Highway" in (filt or "")
     cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
     r = max(x1 - x0, z1 - z0) / 2 + 60
     out = []
     for s in get("/nets", x=cx, z=cz, radius=r, filter=filt).get("segments") or []:
         mx, mz = (s["start"][0] + s["end"][0]) / 2, (s["start"][1] + s["end"][1]) / 2
-        if x0 <= mx <= x1 and z0 <= mz <= z1 and "Highway" not in (s.get("prefab") or ""):
+        if x0 <= mx <= x1 and z0 <= mz <= z1 and (highways or "Highway" not in (s.get("prefab") or "")):
             out.append(s)
     return out
 
@@ -266,8 +269,10 @@ def fit(label, prefab, box, near=None, sides=("left", "right"), ts=FIT_TS, quiet
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     method, path = sys.argv[1].upper(), sys.argv[2]
+    if "/Git/" in path and path[1:2] == ":":
+        path = "/" + path.split("/Git/", 1)[1]  # Git Bash (MSYS) turned "/city" into "C:/Program Files/Git/city"
     if not path.startswith("/"):
-        path = "/" + path  # Git Bash rewrites leading-slash args into Windows paths
+        path = "/" + path
     body = json.loads(sys.argv[3]) if len(sys.argv) > 3 else None
     if method == "GET":
         q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(path).query))

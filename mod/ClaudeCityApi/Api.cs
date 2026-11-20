@@ -113,6 +113,17 @@ namespace ClaudeCityBridge
                 case "/busstop": return RequireGame() ?? BusStop(p.Body);
                 case "/busline": return RequireGame() ?? BusLine(p.Body);
                 case "/lines": return RequireGame() ?? Lines(p.Q("type", "all"));
+                case "/resources": return RequireGame() ?? NaturalResources(p);
+                case "/extractors": return RequireGame() ?? Extractors(p);
+                case "/areas": return RequireGame() ?? AreaList(p);
+                case "/area": return RequireGame() ?? AreaCreate(p);
+                case "/area/delete": return RequireGame() ?? AreaDelete(p);
+                case "/district/name": return RequireGame() ?? DistrictRename(p);
+                case "/requests": return RequireGame() ?? Requests(p);
+                case "/requests/reset": return RequireGame() ?? RequestsReset(p);
+                case "/wind": return RequireGame() ?? WindEndpoint(p);
+                case "/tourism": return RequireGame() ?? TourismEndpoint(p);
+                case "/deathcare": return RequireGame() ?? DeathcareMeasure(p);
                 default: return new ApiError("unknown endpoint " + p.Path, 404);
             }
         }
@@ -633,6 +644,7 @@ namespace ClaudeCityBridge
                     if (em.HasComponent<ServiceObjectData>(e)) d["service"] = PrefabName(em.GetComponentData<ServiceObjectData>(e).m_Service);
                     if (em.HasComponent<ZoneData>(e)) d["areaType"] = em.GetComponentData<ZoneData>(e).m_AreaType.ToString();
                     if (cat == "signature") { AddSignaturePlaced(d, e, sigReset); sigReset = false; }
+                    if (cat == "services") AddPrefabUpkeep(d, e);
                     res.Add(d);
                 }
             }

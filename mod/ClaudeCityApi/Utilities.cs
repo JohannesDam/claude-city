@@ -58,6 +58,7 @@ namespace ClaudeCityBridge
                         foreach (var e in Facilities<GB.ElectricityProducer>()) { res.Add(PowerInfo(e)); seen.Add(e); }
                         foreach (var e in Facilities<GB.Battery>()) if (!seen.Contains(e)) { res.Add(BatteryOnlyInfo(e)); seen.Add(e); }
                         foreach (var e in Facilities<GB.EmergencyGenerator>()) if (!seen.Contains(e)) res.Add(GeneratorInfo(e));
+                        foreach (var s0 in res) AddGridConnection(s0); // InsightServices.cs: HV/LV warnings + flow edge
                         break;
                     }
                 case "water":

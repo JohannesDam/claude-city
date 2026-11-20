@@ -74,11 +74,13 @@ namespace ClaudeCityBridge
                         .Take(limit).Select(SvcToJson).Cast<object>().ToList();
                 res[k] = block;
             }
-            return new Dictionary<string, object>
+            var outp = new Dictionary<string, object>
             {
                 { "note", "vehicles: inUse = owned vehicles not parked; usable = capacity scaled by efficiency (what the dispatcher may send); capacity = prefab + upgrades. Rates use the units of the in-game info panels." },
                 { "kinds", res },
             };
+            AddFacilityAlerts(outp); // InsightServices.cs: destroyed/condemned service buildings
+            return outp;
         }
 
         Dictionary<string, object> SvcToJson(SvcInfo s)
@@ -123,6 +125,7 @@ namespace ClaudeCityBridge
                 t[g.Key] = new Dictionary<string, object> { { "count", g.Sum(s => s.Users) }, { "capacity", g.Sum(s => s.UserCap) } };
             var types = list.GroupBy(s => s.Type ?? "?").ToDictionary(g => g.Key, g => (object)g.Count());
             if (types.Count > 1) t["byType"] = types;
+            InsightTotals(list, t); // InsightServices.cs: summed monthly upkeep
             return t;
         }
 
@@ -201,6 +204,7 @@ namespace ClaudeCityBridge
             }
             if (s.Efficiency <= 0.001f) s.Status.Add("not working (efficiency 0)");
             else if (s.Efficiency < 0.6f) s.Status.Add("low efficiency");
+            InsightBase(s, e, prefab); // InsightServices.cs: monthly upkeep, condemned, destroyed + rebuild path
             return s;
         }
 
@@ -282,7 +286,7 @@ namespace ClaudeCityBridge
             s.Users = df.m_LongTermStoredCount + Buf<GB.Patient>(e); // as DeathcareSection
             s.UserCap = dd.m_StorageCapacity;
             s.RateCap = dd.m_ProcessingRate;
-            s.Rate = s.Users > 0 ? dd.m_ProcessingRate * s.Efficiency : 0f;
+            DeathcareProcessing(s, e, dd); // InsightServices.cs: rate (bodies/day), queue, hearses inbound, measured throughput
             CountVehicles(s, ComponentType.ReadOnly<GV.Hearse>(), dd.m_HearseCapacity, ve);
             var f = df.m_Flags;
             if ((f & GB.DeathcareFacilityFlags.IsFull) != 0 || (s.UserCap > 0 && s.Users >= s.UserCap)) s.Status.Add("full");
@@ -555,6 +559,7 @@ namespace ClaudeCityBridge
                         break;
                     default: MoreServiceDemand(kind, d); break; // Utilities.cs
                 }
+                InsightDemand(kind, d); // InsightServices.cs: deathcare throughput, police summary, electricity trade
             }
             catch (Exception ex) { d["error"] = ex.GetType().Name + ": " + ex.Message; }
             return d;
@@ -615,6 +620,7 @@ namespace ClaudeCityBridge
                     if (sc > 0 && st >= 0.9 * sc) h.Add($"{g.Key}: {st}/{sc} seats used");
                 }
             MoreServiceDiagnosis(kind, list, demand, h); // Utilities.cs
+            InsightDiagnosis(kind, list, demand, h); // InsightServices.cs
             if (h.Count == 0) h.Add("no obvious capacity problem");
             return h;
         }

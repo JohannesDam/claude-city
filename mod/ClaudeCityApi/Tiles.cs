@@ -47,11 +47,14 @@ namespace ClaudeCityBridge
                 size = tiles.Skip(1).Select(t => math.distance(t.centre, t0.centre)).Where(d => d > 1).DefaultIfEmpty(600).Min();
             }
             var cands = new List<object>();
+            var quote = TileQuoteContext(); // InsightUpkeep.cs: price + upkeep change per candidate
             foreach (var t in tiles)
             {
                 if (t.owned) continue;
                 if (!owned.Any(o => math.abs(o.centre.x - t.centre.x) < size * 1.2f && math.abs(o.centre.y - t.centre.y) < size * 1.2f)) continue;
-                cands.Add(new Dictionary<string, object> { { "index", t.index }, { "id", Id(t.e) }, { "centre", new List<object> { Math.Round(t.centre.x), Math.Round(t.centre.y) } } });
+                var cd = new Dictionary<string, object> { { "index", t.index }, { "id", Id(t.e) }, { "centre", new List<object> { Math.Round(t.centre.x), Math.Round(t.centre.y) } } };
+                AddTileQuote(cd, t.e, quote);
+                cands.Add(cd);
             }
             return new Dictionary<string, object>
             {
@@ -59,6 +62,7 @@ namespace ClaudeCityBridge
                 { "availableToBuy", mtp.GetAvailableTiles() }, { "milestonesLeft", mtp.IsMilestonesLeft() },
                 { "ownedCentres", owned.Select(o => (object)new List<object> { Math.Round(o.centre.x), Math.Round(o.centre.y) }).ToList() },
                 { "candidates", cands },
+                { "tileUpkeep", TileUpkeepSummary(quote) },
             };
         }
 

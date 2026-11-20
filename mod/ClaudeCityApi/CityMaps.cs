@@ -184,6 +184,7 @@ namespace ClaudeCityBridge
                 { "legend", ". no crime | 0-9 = max building crime in cell relative to maxCrimeAccumulation; rows north->south" },
                 { "grid", RenderGrid(vals, n, z0, cell, scale, v => v <= 0f) },
                 { "worst", worstList },
+                { "police", PoliceSummary() }, // InsightServices.cs: jail/prison occupancy, criminals by state, patrol/transport backlog
             };
         }
 

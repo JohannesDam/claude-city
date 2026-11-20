@@ -352,8 +352,9 @@ def demolition_cost(would, rates=None):
     for w in would or []:
         if w.get("state") in ("abandoned", "condemned", "destroyed"):
             continue
-        z = (w.get("zone") or w.get("prefab") or "")
-        n = w.get("renters") or 0
+        z = (w.get("zone") or w.get("kind") or w.get("prefab") or "")
+        # /building wouldDemolish has "renters"; the /bulldoze dry-run impact list has "households"/"companies"
+        n = w.get("renters") if w.get("renters") is not None else ((w.get("households") or 0) + (w.get("companies") or 0))
         if "Industrial" in z:
             k, rev = "industrial", rates["industrial"]
         elif "Office" in z:

@@ -78,6 +78,13 @@ In a new district, lay water and sewage pipes (and check power) along the spine 
 buildings; otherwise every new building shows Water/Sewage notifications and stalls (East Bank, 2032-01). Check
 `GET /problems?type=Water Notification` and `Sewage Notification` after zoning.
 
+## Renewal arithmetic
+
+Removing a street also removes the zoned buildings that front it (their zoning goes with the street), even if
+they are outside your demolition box. A phase total = buildings in the box + `buildingsFrontingDeletedEdges` from
+the /bulldoze dry run. `demolition_cost()` accepts both the /building wouldDemolish list and the /bulldoze impact
+list. Rezone the freed frontage in the same lock.
+
 ## Done means working
 
 - `roadConnected` only checks the lot's front centre. After the game has run a moment, call

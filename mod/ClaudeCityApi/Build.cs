@@ -148,7 +148,7 @@ namespace ClaudeCityBridge
             }
             if (prefab == Entity.Null) return new ApiError("zone prefab not found: " + zoneName);
             if (!dezone && IsLocked(prefab)) return new ApiError(PrefabName(prefab) + " is still locked");
-            var job = new ZoneJob { Prefab = prefab, Dezone = dezone, Overwrite = a.B("overwrite", true), DryRun = a.B("dryRun") };
+            var job = new ZoneJob { Prefab = prefab, Dezone = dezone, Overwrite = a.B("overwrite", false), DryRun = a.B("dryRun") };
             var mode = a.Str("mode", a.Has("edges") ? "road" : "rect");
             if (mode == "rect")
             {

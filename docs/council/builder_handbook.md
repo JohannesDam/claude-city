@@ -156,7 +156,9 @@ Write longer builds as scripts in `tools/builders/<you>_<item>.py` and run them 
 - Roadside placement: `building(prefab, near=[x,z], side="auto")`; `place_smart(prefab, x, z, radius=400)`;
   `building(prefab, edge=id, t=0..1, side="left|right")` or `building(prefab, x=, z=, angle=)`;
   `fit(label, prefab, (x0,x1,z0,z1), near=(x,z))`.
-- Zoning: `zone(name, mode="rect", points=[[x0,z0],[x1,z1]], overwrite=False)` or
+- Zoning (`overwrite` is False by default since 2032-01: rezoning cells that already carry a zone - and so the
+  buildings on them - needs `overwrite=True`, which counts as demolition: renewal phases only; `side` "right" =
+  right-hand travelling from the edge's start to its end): `zone(name, mode="rect", points=[[x0,z0],[x1,z1]])` or
   `zone(name, mode="road", edges=[ids], depth=1..6, side="both|left|right")`.
 - `upgrade(prefab, edges)` replaces the road type (batches of <= 4 edges).
 - `post("/roadupgrade", {"edges":[ids], "upgrade":"Trees|Grass|Wide Sidewalk|Sound Barrier|Lighting|Bikelane", "side":"both"})`.

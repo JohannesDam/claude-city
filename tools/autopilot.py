@@ -14,6 +14,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cc import BUILD_LOCK, get, paused, post  # noqa: E402
+import devpoints  # noqa: E402
 
 sys.stdout.reconfigure(encoding="utf-8")
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs")
@@ -68,6 +69,7 @@ def main():
     ap.add_argument("--save-every", type=float, default=5)
     ap.add_argument("--speed", type=int, default=3)
     ap.add_argument("--min-minutes", type=float, default=20, help="never stop for a stall before this")
+    ap.add_argument("--devpoints-every", type=float, default=10, help="minutes between spending development points per devpoints.PLAN (0 = never)")
     ap.add_argument("--clear-every", type=float, default=15, help="minutes between clearing ruins/abandoned buildings (0 = never)")
     ap.add_argument("--stall-window", type=float, default=10, help="minutes of history for the stall test")
     ap.add_argument("--stall-growth", type=int, default=300, help="stop when population grew less than this over the window")
@@ -84,6 +86,7 @@ def main():
     history = []  # (time, population)
     stop_reason = "time limit"
     last_clear = time.time()
+    last_dev = 0.0
     cleared = 0
     while time.time() < end:
         st = get("/status", timeout=20)
@@ -156,6 +159,12 @@ def main():
         if a.clear_every and time.time() - last_clear > a.clear_every * 60:
             last_clear = time.time()
             cleared += clear_ruins()
+        if a.devpoints_every and time.time() - last_dev > a.devpoints_every * 60:
+            last_dev = time.time()
+            try:
+                devpoints.spend()  # never let development points pile up (tools/devpoints.py PLAN)
+            except Exception as e:  # noqa: BLE001
+                print("devpoints failed:", e)
         if time.time() - last_save > a.save_every * 60:
             r = post("/save", {"name": "Claude City"}, timeout=120)
             last_save = time.time()

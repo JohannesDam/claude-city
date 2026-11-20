@@ -5,7 +5,8 @@
   "builder-central": "core: Downtown, Office Park, Waterfront, Lakeshore, Lakeside Leisure",
   "builder-northeast": "north and east: Northfield, University Hill, Eastern Works, NE utilities, Science Ridge, Northeast Wind Fields, Port Claude, Eastport, Pearl Bay",
   "troubleshooter": "city-wide: the #1 problem at any time (services short, broken connections, traffic knots), city-wide services",
-  "builder-south": "south: Health Campus, Old Southern Works, South gateway, Southgate, East Bank (across the lake)"
+  "builder-south": "south: Health Campus, Old Southern Works, South gateway, Southgate, East Bank (across the lake)",
+  "builder-east": "south-east: East Gate (southern parkway, international airport, logistics, works, commons)"
  },
  "districts": [
   {
@@ -445,6 +446,48 @@
    "owner": "builder-northeast",
    "phase": "building",
    "character": "industrial extension east of Eastern Works around the curved Riverside Drive loop, green bank along the channel",
+   "tiles": []
+  },
+  {
+   "name": "East Gate",
+   "gameDistrict": null,
+   "bbox": [
+    1300,
+    -2181,
+    5298,
+    312
+   ],
+   "owner": "builder-east",
+   "phase": "acquisition",
+   "character": "the city's second gateway: a curved tree-lined Southern Parkway from the SE outside highway to the South gateway, Claude International Airport, a lakefront hotel and office strip, and logistics/ore works behind tree belts - all downwind/away from homes",
+   "tiles": []
+  },
+  {
+   "name": "Southwest Business Park",
+   "gameDistrict": null,
+   "bbox": [
+    -4675,
+    -1558,
+    -3428,
+    -935
+   ],
+   "owner": "builder-west",
+   "phase": "acquisition",
+   "character": "office campus for the ~70k residents of the west and south-west: Office High around a green, curved collectors, tram/bus link; clean work upwind is fine",
+   "tiles": []
+  },
+  {
+   "name": "Northlake",
+   "gameDistrict": null,
+   "bbox": [
+    -3429,
+    2181,
+    -2806,
+    3428
+   ],
+   "owner": "builder-west",
+   "phase": "acquisition",
+   "character": "tram-served lakeside new town west of Northwest: medium/high density around a tram square, curved streets, lakefront park",
    "tiles": []
   }
  ]

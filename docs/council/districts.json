@@ -68,7 +68,7 @@
    "bbox": [
     -4030,
     -920,
-    -2810,
+    -2826,
     -310
    ],
    "owner": "builder-west",
@@ -252,13 +252,13 @@
   {
    "name": "Southgate",
    "bbox": [
-    -2805,
+    -2825,
     -935,
     -2182,
     -312
    ],
    "owner": "builder-south",
-   "phase": "acquisition",
+   "phase": "building",
    "character": "transit-oriented new quarter on the empty tile between the SW Quarter and Office Park: curved tree-lined South Ring boulevard, station square (bus station now, tram/metro later), medium/high density mixed use around a central green; decant homes for the SW renewal",
    "tiles": [
     [
@@ -266,7 +266,7 @@
      -623
     ]
    ],
-   "gameDistrict": null
+   "gameDistrict": "Southgate"
   },
   {
    "name": "East Bank",

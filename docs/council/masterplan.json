@@ -232,6 +232,17 @@
    ],
    "use": "16 x WindTurbine01 (council round 2, 960k at full wind): Small Road spine x=-850 from the z=3400 street, rows z 3530/3655/3780/3905, turbines on the north side of each row; needs ~120 m turbine spacing - no homes, zoning or other buildings inside",
    "owner": "utilities"
+  },
+  {
+   "name": "Southgate metro reserve",
+   "bbox": [
+    -2650,
+    -910,
+    -2430,
+    -765
+   ],
+   "use": "keep free for a subway yard / metro station behind the Southgate bus station (builder-south, 2032-01)",
+   "owner": "builder-south"
   }
  ]
 }

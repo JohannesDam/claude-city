@@ -571,5 +571,122 @@
   "impact": 3,
   "status": "in progress",
   "api_today": "merged into Api.cs by the road-upgrade teammate"
+ },
+ {
+  "rank": 52,
+  "domain": "Utilities",
+  "feature": "High-voltage line to a building's connection point",
+  "why_it_matters": "Power plants, batteries and incinerators have a high-voltage connection point; /road does not snap to building-owned nodes, so emergency batteries and the north incinerator stay 'Powerline Not Connected'.",
+  "reported_by": "builders round 2 + builder-northeast",
+  "status": "open",
+  "added": "2026-11-20"
+ },
+ {
+  "rank": 53,
+  "domain": "Build",
+  "feature": "/findspot along freshly built roads",
+  "why_it_matters": "builder-northeast: every spot beside a new road is rejected as 'road'/'area', so place_smart/near= fail there and builders fall back to edge/t/side.",
+  "reported_by": "builder-northeast",
+  "status": "open",
+  "added": "2026-11-20"
+ },
+ {
+  "rank": 54,
+  "domain": "Build",
+  "feature": "Dry-run false negatives",
+  "why_it_matters": "A /building dry run reported 'Invalid Shape' for IndustrialManufacturingSignature07 while the real build succeeded with 0 errors.",
+  "reported_by": "builder-northeast",
+  "status": "open",
+  "added": "2026-11-20"
+ },
+ {
+  "rank": 55,
+  "domain": "Areas",
+  "feature": "District naming error",
+  "why_it_matters": "POST /area for a district returns nameError 'EntityCommandBuffer not allowed' although the name is set.",
+  "reported_by": "builder-northeast",
+  "status": "open",
+  "added": "2026-11-20"
+ },
+ {
+  "rank": 56,
+  "domain": "Insight",
+  "feature": "Time series per building",
+  "why_it_matters": "Proving output over game days (wind parks, deathcare) needs an agent to stay alive ~40 minutes; a per-building history (output, load) would let builders verify without waiting.",
+  "reported_by": "utilities round 2",
+  "status": "open",
+  "added": "2026-11-20"
+ },
+ {
+  "rank": 57,
+  "domain": "Utilities",
+  "feature": "Available vs delivered electricity",
+  "why_it_matters": "/services?kind=electricity production is demand-limited (surplus curtailed); an 'available' figure per plant would show real capacity.",
+  "reported_by": "utilities round 2",
+  "status": "open",
+  "added": "2026-11-20"
+ },
+ {
+  "rank": 58,
+  "domain": "Mobility",
+  "feature": "Line preview",
+  "why_it_matters": "/busline dryRun cannot preview length, duration and vehicles needed for new stops.",
+  "reported_by": "mobility round 2",
+  "status": "open",
+  "added": "2026-11-20"
+ },
+ {
+  "rank": 59,
+  "domain": "Mobility",
+  "feature": "One-sided widening",
+  "why_it_matters": "/upgrade cannot widen a road to one side only (keep the kerb on the built-up side); every widening hits frontage on both sides.",
+  "reported_by": "mobility round 2",
+  "status": "open",
+  "added": "2026-11-20"
+ },
+ {
+  "rank": 60,
+  "domain": "Mobility",
+  "feature": "Traffic flow per edge",
+  "why_it_matters": "No per-edge traffic volume or turning flows, so junction rebuilds cannot be quantified.",
+  "reported_by": "mobility round 2",
+  "status": "open",
+  "added": "2026-11-20"
+ },
+ {
+  "rank": 61,
+  "domain": "Economy",
+  "feature": "Extractor progress",
+  "why_it_matters": "No view of the step from extractor placeholder to working company (pending, why not).",
+  "reported_by": "economy round 2",
+  "status": "open",
+  "added": "2026-11-20"
+ },
+ {
+  "rank": 62,
+  "domain": "Build",
+  "feature": "Zone dry run detail",
+  "why_it_matters": "/zone dry runs return only cell counts, not which side/where.",
+  "reported_by": "economy round 2",
+  "status": "open",
+  "added": "2026-11-20"
+ },
+ {
+  "rank": 63,
+  "domain": "Health",
+  "feature": "Dead awaiting hearse breakdown",
+  "why_it_matters": "/services?kind=deathcare deadAwaitingHearse does not match waiting requests; nothing explains what it counts.",
+  "reported_by": "health round 2",
+  "status": "open",
+  "added": "2026-11-20"
+ },
+ {
+  "rank": 64,
+  "domain": "Coverage",
+  "feature": "Fire coverage of industry",
+  "why_it_matters": "/coverage FireRescue has no industrial/buildings layer.",
+  "reported_by": "health round 2",
+  "status": "open",
+  "added": "2026-11-20"
  }
 ]

@@ -221,6 +221,17 @@
    ],
    "use": "PROTECTED leisure: WaterPark01, Iceflake Arena, promenade, parks",
    "owner": "parks"
+  },
+  {
+   "name": "North wind gate",
+   "bbox": [
+    -935,
+    3395,
+    -436,
+    4045
+   ],
+   "use": "16 x WindTurbine01 (council round 2, 960k at full wind): Small Road spine x=-850 from the z=3400 street, rows z 3530/3655/3780/3905, turbines on the north side of each row; needs ~120 m turbine spacing - no homes, zoning or other buildings inside",
+   "owner": "utilities"
   }
  ]
 }

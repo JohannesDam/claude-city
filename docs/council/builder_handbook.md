@@ -56,7 +56,10 @@ the start of your shift; it replaces the per-round worker prompt of the old coun
 - Every residential block within park coverage; schools, clinics, post and shops within walking distance.
 - Zone the density that has demand (`GET /city` demand). The city is 62% low-density homes and 3% high
   density: new cores near transit should be dense (medium/high, mixed use).
-- Transit is part of every plan: bus first, tram/train/subway where density allows.
+- Transit is part of every plan: bus first, tram/train/subway where density allows. Tram line T1 runs on
+  x=-1909 (depot TramDepot01 at (-2068,-500)); tram track prefabs are in `/prefabs?category=nets`; trams and
+  trains cannot reverse at a dead-end track, so every line end needs a loop. `/lines` can say complete while a
+  segment fails pathfinding: check `/problems` for Pathfind Failed / Track Not Connected after building a line.
 
 ## Done means working
 

@@ -89,6 +89,7 @@ log(`Batch ${B}: envelope $${(FIN.envelope / 1e6).toFixed(1)}M, new upkeep cap $
 const plans = (await parallel(DEPTS.map(d => () => agent(
   `You are the ${d.title} on Claude City's advisory board (worklist batch ${B}). The owner's brief: the city must become "an aesthetic pearl where people and city live in synergy", think big, and keep renewing - new transport modes, trade, new districts - not the same round of chores.
 You do not build. Builders (one per group of districts, plus a troubleshooter) work continuously from a shared worklist; your items go on it. Give GOALS with an outline, not exact coordinates: the city changes while builders work, they pick exact sites at build time.
+Lack of free land is not a reason to put a building in the wrong place or drop it: builders buy adjacent tiles (cheap) or make room with cc.make_room, which clears the cheapest zoned lots priced in households, companies and tax revenue (homes ~$90/household/month, industry/office ~$20-25k/building/month). Propose the location where the building does the most good.
 Spread city-wide needs over the districts in the register: say for each item which district takes it, matching the district's character and free land. Use "NEW:<name>" for a district that does not exist yet (with newDistrict) and "citywide" only for things without a district (give x/z anyway).
 Focus: ${d.focus}
 Your handbook section in domains.md: ${d.section}.

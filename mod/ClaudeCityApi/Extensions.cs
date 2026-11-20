@@ -109,7 +109,9 @@ namespace ClaudeCityBridge
                 if (before != null && before.Contains(u)) continue;
                 if (em.HasComponent<GP.PrefabRef>(u) && em.GetComponentData<GP.PrefabRef>(u).m_Prefab == Prefab) { Placed = u; break; }
             }
+            if (Placed == Entity.Null) Placed = Api.FindNewExtension(Prefab, Owner, Position, before); // InstalledUpgrade not updated yet
             Result["upgradeId"] = Placed == Entity.Null ? null : Api.Id(Placed);
+            Result["placedId"] = Result["upgradeId"]; // same key as POST /building
             try { Result["ownerAfter"] = Api.CombinedServiceStats(Owner); } catch (Exception e) { Result["ownerAfterError"] = e.Message; }
         }
 
@@ -256,6 +258,7 @@ namespace ClaudeCityBridge
             r["facing"] = Api.F2(math.mul(slot.Rot, new float3(0, 0, 1)));
             r["dryRun"] = dryRun;
             r["allowDemolish"] = allowDemolish;
+            if (!r.ContainsKey("placedId")) r["placedId"] = null; // set by ExtensionJob.AfterApply after a real build
             if (tried.Count > 1) r["tried"] = tried;
             if (demolishN > 0 && !allowDemolish && !r.ContainsKey("blocked"))
             {
@@ -280,6 +283,23 @@ namespace ClaudeCityBridge
             public quaternion Rot;
             public float Along;   // metres from the start of the side line (after snapping)
             public int Demolishes = -1; // growable lots under the extension lot (ExtensionSafety.cs), -1 = not checked
+        }
+
+        /// <summary>Fallback for placedId: a new building of the extension prefab owned by the owner, nearest to the slot.</summary>
+        public Entity FindNewExtension(Entity prefab, Entity owner, float3 pos, HashSet<Entity> before)
+        {
+            var q = em.CreateEntityQuery(ComponentType.ReadOnly<GP.PrefabRef>(), ComponentType.ReadOnly<ObjTransform>(), ComponentType.ReadOnly<Owner>(),
+                ComponentType.Exclude<Deleted>(), ComponentType.Exclude<Temp>());
+            Entity best = Entity.Null; float bd = 60f;
+            using (var arr = q.ToEntityArray(Allocator.Temp))
+                foreach (var e in arr)
+                {
+                    if (before != null && before.Contains(e)) continue;
+                    if (em.GetComponentData<GP.PrefabRef>(e).m_Prefab != prefab || em.GetComponentData<Owner>(e).m_Owner != owner) continue;
+                    var d = math.distance(em.GetComponentData<ObjTransform>(e).m_Position.xz, pos.xz);
+                    if (d < bd) { bd = d; best = e; }
+                }
+            return best;
         }
 
         public HashSet<Entity> InstalledUpgradeSet(Entity owner)

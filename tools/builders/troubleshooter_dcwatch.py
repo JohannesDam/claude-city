@@ -20,6 +20,8 @@ for b in d["buildings"]:
     v = b["vehicles"]
     proc = b.get("processing") or {}
     meas = proc.get("measured") or (b.get("intake") or {}).get("measured") or {}
+    if not isinstance(meas, dict):
+        meas = {}
     print(f"  {b['id']:12} {b['prefab']:14} {str([round(p) for p in b['pos']]):16} {','.join(b['status']):22} "
           f"hearses {v['inUse']}/{v['usable']:2} bodies {b['bodies']['count']}/{b['bodies']['capacity']} "
           f"perDay {meas.get('bodiesPerDay', meas.get('storedPerDay'))}")

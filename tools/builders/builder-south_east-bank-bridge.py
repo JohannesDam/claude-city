@@ -25,9 +25,14 @@ def deck_points(xs, zs, grounded=()):
     return [[x, z, 0 if i in grounded else round(max(0.0, DECK - t[i]["height"]), 1)] for i, (x, z) in enumerate(zip(xs, zs))]
 
 
-WEST_APPROACH = [[-1140, -870], [-1000, -876], [-820, -885], [-640, -889]]
+WEST_TIE = [[-1140, -870], [-1070, -873]]  # Medium: a Large junction at the x=-1140 node would clip an office
+WEST_APPROACH = [[-1070, -873], [-1000, -876], [-820, -885], [-640, -889]]
 WEST_RAMP = deck_points([-640, -560, -450], [-889, -891, -897], grounded=(0,))
-SPAN = deck_points([-450, -340, -260, -180, -100, 0], [-897, -904, -908, -909, -907, -902])
+# span control points ~90 m apart (shorter bridge segments fail with 'Short Distance'); every point sits at the
+# same absolute deck height and a segment is a 3D curve between its end nodes, so the deck stays level at ~520 m
+SPAN_X = [-450, -360, -270, -180, -90, 0]
+SPAN_Z = [-897, -903, -907, -909, -906, -902]
+SPAN = deck_points(SPAN_X, SPAN_Z)
 EAST_RAMP = deck_points([0, 90, 180], [-902, -898, -894], grounded=(2,))
 EAST_APPROACH = [[180, -894], [240, -890], [300, -885]]
 BRIDGE = "Extradosed Bridge - Large Road Divided - 6 Lanes"
@@ -44,13 +49,42 @@ def build(label, prefab, pts):
     return r
 
 
+# bridgehead gateway: the boulevard continues east (town spine) and a shore drive crosses it -> roundabout
+SPINE_STUB = [[300, -885], [360, -882], [420, -880]]
+SHORE_NORTH = [[300, -885], [325, -820], [370, -765]]
+SHORE_SOUTH = [[300, -885], [287, -945], [265, -1000]]
+PARTS = [("west tie", "Medium Road", WEST_TIE), ("west approach", "Large Road", WEST_APPROACH), ("west ramp", "Large Road", WEST_RAMP),
+         ("bridge span", BRIDGE, SPAN), ("east ramp", "Large Road", EAST_RAMP), ("east approach", "Large Road", EAST_APPROACH),
+         ("town spine stub", "Large Road", SPINE_STUB), ("shore drive N", "Medium Road", SHORE_NORTH),
+         ("shore drive S", "Medium Road", SHORE_SOUTH)]
+
 stage = sys.argv[1] if len(sys.argv) > 1 else ""
+if stage == "dry":
+    # every part on its own (later parts snap to the earlier ones only once those exist), plus a clearance check
+    t = call("POST", "/terrain", {"points": [[float(p[0]), float(p[1])] for p in SPAN]})["points"]
+    for p, h in zip(SPAN, t):
+        print(f"  span point {p}: terrain {h['height']:.1f}, water depth {h['waterDepth']:.1f}, deck {h['height'] + p[2]:.1f} m")
+    ends = [(WEST_APPROACH[-1], WEST_RAMP[0]), (WEST_RAMP[-1], SPAN[0]), (SPAN[-1], EAST_RAMP[0]), (EAST_RAMP[-1], EAST_APPROACH[0])]
+    print("  joints match:", all(a[:2] == b[:2] and (len(a) < 3 or len(b) < 3 or a[2] == b[2]) for a, b in ends))
+    for label, prefab, pts in PARTS:
+        d = post("/road", {"prefab": prefab, "points": pts, "curve": "smooth", "dryRun": True})
+        g = d.get("geometry") or {}
+        print(f"{label:<14} errors={d.get('errors')} problems={d.get('problems')} warnings={g.get('warnings')} "
+              f"minR={g.get('minRadius')} demolish={len(d.get('wouldDemolish') or [])} cost={d.get('cost')}")
+    d = post("/roundabout", {"at": EAST_APPROACH[-1], "size": "medium", "dryRun": True})
+    print("roundabout (needs the approach first):", d.get("errors"), d.get("error"))
+
 if stage == "all":
     with paused(WHO):
-        build("west approach", "Large Road", WEST_APPROACH)
-        build("west ramp", "Large Road", WEST_RAMP)
-        build("bridge span", BRIDGE, SPAN)
-        build("east ramp", "Large Road", EAST_RAMP)
-        build("east approach", "Large Road", EAST_APPROACH)
+        for label, prefab, pts in PARTS:
+            if build(label, prefab, pts) is None:
+                sys.exit(f"stopped at {label}")
         d = post("/roundabout", {"at": EAST_APPROACH[-1], "size": "medium", "dryRun": True})
-        print("roundabout dry", d.get("errors"), d.get("error"), (d.get("node") or {}).get("degree"))
+        print("roundabout dry", d.get("errors"), d.get("error"), d.get("wouldDemolish"))
+        if d.get("errors") == 0 and not d.get("wouldDemolish"):
+            print("roundabout", short(post("/roundabout", {"at": EAST_APPROACH[-1], "size": "medium"})))
+        box = [-1145, -1010, 430, -760]
+        for prefab, ups in (("Large Road", ("Trees", "Grass")), ("Medium Road", ("Trees",))):
+            for up in ups:
+                u = post("/roadupgrade", {"box": box, "prefabFilter": prefab, "upgrade": up, "side": "both"})
+                print(prefab, up, u.get("applied"), u.get("cost"), u.get("errors"))

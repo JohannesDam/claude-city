@@ -6,7 +6,8 @@ Each phase, in one paused block:
   - remove a shelter of mine that blocks the widening and re-place it nearby;
   - upgrade the x=-3180 spine section to Medium Road (+Trees, Grass), clearing the corner buildings;
   - a pocket park on a cleared corner and NA Residential Mixed on the spine's own frontage (overwrite=False).
-Usage: python -I builders/builder-west_swq-phase34.py 3|4 [dry]
+Usage: python -I builders/builder-west_swq-phase34.py 3|4|5 [dry]
+(phase 5 added later: z -320..-430, capacity from the Westbrook Civic Lane ~730 hh)
 """
 import json
 import sys
@@ -22,6 +23,7 @@ SWQ = [-4030, -920, -2826, -310]
 PHASES = {
     "3": {"z": (-430, -540), "shelter": "891706:103", "shelter_box": (-3175, -3100, -540, -440), "park_box": (-3240, -3120, -540, -440)},
     "4": {"z": (-760, -870), "shelter": None, "shelter_box": None, "park_box": (-3240, -3120, -870, -765)},
+    "5": {"z": (-320, -430), "shelter": None, "shelter_box": None, "park_box": (-3240, -3120, -430, -325)},
 }
 
 

@@ -121,6 +121,12 @@ namespace ClaudeCityBridge
                 case "/busstop": return RequireGame() ?? BusStop(p.Body);
                 case "/busline": return RequireGame() ?? BusLine(p.Body);
                 case "/lines": return RequireGame() ?? Lines(p.Q("type", "all"));
+                case "/line": return RequireGame() ?? BusLine(p.Body);
+                case "/line/edit": return RequireGame() ?? LineEdit(p.Body);
+                case "/line/delete": return RequireGame() ?? LineDelete(p.Body);
+                case "/freight": return RequireGame() ?? Freight(p);
+                case "/vehicles": return RequireGame() ?? Vehicles(p);
+                case "/companies": return RequireGame() ?? Companies(p);
                 case "/resources": return RequireGame() ?? NaturalResources(p);
                 case "/extractors": return RequireGame() ?? Extractors(p);
                 case "/areas": return RequireGame() ?? AreaList(p);

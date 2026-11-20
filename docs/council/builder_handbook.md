@@ -56,6 +56,15 @@ the start of your shift; it replaces the per-round worker prompt of the old coun
 - Every residential block within park coverage; schools, clinics, post and shops within walking distance.
 - Zone the density that has demand (`GET /city` demand). The city is 62% low-density homes and 3% high
   density: new cores near transit should be dense (medium/high, mixed use).
+- Freight: cargo trains and ships only run on CARGO ROUTES (`post("/line", {"type":"train"|"ship", "cargo":True,
+  "stops":[<cargo stop id>, <outside connection id>]})`); without a route a cargo station trades by truck only.
+  Cargo routes exist since 2032-01: terminal 610973:49 to both rail connections, Port Claude cargo harbour to both
+  ship connections. Every new cargo terminal/harbour needs its own route. `GET /freight[?station=id]` shows cargo
+  per mode, stations, stored cargo, track verdicts and hints; `GET /vehicles`, `GET /companies?problems=1` (No
+  Inputs: what each factory lacks and where its supply comes from).
+- Lines: `POST /line` (alias of /busline; tram/train/subway/ship/plane, cargo), `POST /line/edit` (add/remove/move
+  stops), `POST /line/delete`; every line call returns `pathCheck` and a real build is refused if it would be
+  broken. `GET /lines` shows `broken` and `failedSegments`.
 - Transit is part of every plan: bus first, tram/train/subway where density allows. Tram line T1 runs on
   x=-1909 (depot TramDepot01 at (-2068,-500)); tram track prefabs are in `/prefabs?category=nets`; trams and
   trains cannot reverse at a dead-end track, so every line end needs a loop. `/lines` can say complete while a

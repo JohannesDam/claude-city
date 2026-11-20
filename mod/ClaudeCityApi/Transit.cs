@@ -113,22 +113,33 @@ namespace ClaudeCityBridge
         public Entity RoutePrefab;
         public UnityEngine.Color32 Color;
         public List<Func<Entity>> Stops = new List<Func<Entity>>();
+        /// <summary>Dry runs: per stop, a plain waypoint position used when the stop does not exist yet (new stops are only previewed).</summary>
+        public List<float3?> Proxies;
         public Entity Placed = Entity.Null;
         HashSet<Entity> before;
 
         public override JobHandle Create(AgentToolSystem tool, EntityCommandBuffer ecb, JobHandle deps)
         {
             var em = tool.EntityManager;
-            var stops = new List<Entity>();
+            var stops = new List<KeyValuePair<Entity, float3>>(); // stop (Entity.Null = plain proxy waypoint), position
             var missing = new List<object>();
+            int proxies = 0;
             for (int i = 0; i < Stops.Count; i++)
             {
                 var s = Stops[i]();
-                if (s == Entity.Null || !Api.IsLive(s) || !em.HasComponent<ObjTransform>(s)) { missing.Add(i); continue; }
-                if (stops.Count > 0 && stops[stops.Count - 1] == s) continue;
-                stops.Add(s);
+                if (s != Entity.Null && Api.IsLive(s) && em.HasComponent<ObjTransform>(s))
+                {
+                    if (stops.Count > 0 && stops[stops.Count - 1].Key == s) continue;
+                    stops.Add(new KeyValuePair<Entity, float3>(s, em.GetComponentData<ObjTransform>(s).m_Position));
+                }
+                else if (DryRun && Proxies != null && i < Proxies.Count && Proxies[i].HasValue)
+                {
+                    stops.Add(new KeyValuePair<Entity, float3>(Entity.Null, Proxies[i].Value));
+                    proxies++;
+                }
+                else missing.Add(i);
             }
-            if (stops.Count > 1 && stops[0] == stops[stops.Count - 1]) stops.RemoveAt(stops.Count - 1);
+            if (stops.Count > 1 && stops[0].Key != Entity.Null && stops[0].Key == stops[stops.Count - 1].Key) stops.RemoveAt(stops.Count - 1);
             if (missing.Count > 0) { Result["error"] = "stops missing (not created?)"; Result["missingStopIndexes"] = missing; return deps; }
             if (stops.Count < 2) { Result["error"] = "a line needs at least 2 different stops"; return deps; }
             before = Api.AllRoutes();
@@ -138,9 +149,10 @@ namespace ClaudeCityBridge
             ecb.AddComponent(e, default(Updated));
             var buf = ecb.AddBuffer<WaypointDefinition>(e);
             foreach (var s in stops)
-                buf.Add(new WaypointDefinition(em.GetComponentData<ObjTransform>(s).m_Position) { m_Connection = s });
-            buf.Add(new WaypointDefinition(em.GetComponentData<ObjTransform>(stops[0]).m_Position) { m_Connection = stops[0] });
-            Result["stopsInLine"] = stops.Select(x => (object)Api.Id(x)).ToList();
+                buf.Add(new WaypointDefinition(s.Value) { m_Connection = s.Key });
+            buf.Add(new WaypointDefinition(stops[0].Value) { m_Connection = stops[0].Key });
+            Result["stopsInLine"] = stops.Select(x => x.Key == Entity.Null ? (object)("planned stop " + Math.Round(x.Value.x) + "," + Math.Round(x.Value.z)) : Api.Id(x.Key)).ToList();
+            if (proxies > 0) Result["proxyWaypoints"] = proxies;
             return deps;
         }
 
@@ -166,6 +178,8 @@ namespace ClaudeCityBridge
         readonly Func<object> finish;
         readonly int started = Environment.TickCount;
         readonly int timeoutMs;
+        /// <summary>Called every frame while the jobs run (e.g. LinePathWatch.Observe).</summary>
+        public Action OnStep;
         public ChainOperation(List<AgentToolSystem.BuildJob> jobs, Func<object> finish)
         {
             this.jobs = jobs; this.finish = finish;
@@ -174,6 +188,7 @@ namespace ClaudeCityBridge
         public bool Step(out object result)
         {
             result = null;
+            OnStep?.Invoke();
             if (jobs.All(j => j.Done)) { result = finish(); return true; }
             if (Environment.TickCount - started > timeoutMs) { result = new ApiError("build chain timed out (is the game running and in-game?)", 504); return true; }
             return false;
@@ -254,9 +269,10 @@ namespace ClaudeCityBridge
             => em.HasComponent<TransportStopData>(e) && em.HasComponent<PlaceableObjectData>(e) && !em.HasComponent<BuildingData>(e)
                && em.GetComponentData<TransportStopData>(e).m_TransportType == type && em.GetComponentData<TransportStopData>(e).m_PassengerTransport;
 
-        bool IsLinePrefab(Entity e, Game.Prefabs.TransportType type)
+        bool IsLinePrefab(Entity e, Game.Prefabs.TransportType type, bool cargo = false)
             => em.HasComponent<TransportLineData>(e) && em.HasComponent<RouteData>(e)
-               && em.GetComponentData<TransportLineData>(e).m_TransportType == type && em.GetComponentData<TransportLineData>(e).m_PassengerTransport;
+               && em.GetComponentData<TransportLineData>(e).m_TransportType == type
+               && (cargo ? em.GetComponentData<TransportLineData>(e).m_CargoTransport : em.GetComponentData<TransportLineData>(e).m_PassengerTransport);
 
         /// <summary>Pick the placeable (menu) prefab; prefer unlocked ones.</summary>
         Entity DefaultPrefab(Func<Entity, bool> filter)
@@ -467,9 +483,15 @@ namespace ClaudeCityBridge
         }
 
         /// <summary>
-        /// POST /busline {stops:[stopId | {edge,t,side} | {x,z,side?}, ...], color:"#RRGGBB", prefab?, dryRun}
-        /// Missing stops are placed first (existing stops within 12 m on the same edge are reused), then the
-        /// line is created as a closed loop through the stops in the given order.
+        /// POST /busline (also POST /line) {type: bus|tram|train|subway|ship|airplane (default bus), cargo: false,
+        ///   stops:[stopId | stationId | {edge,t,side} | {x,z,side?}, ...], color:"#RRGGBB", prefab?, stopPrefab?, dryRun, allowBroken}
+        /// Road stops (bus, tram): missing stops are placed first (existing stops within 12 m on the same side are
+        /// reused). Train, subway, ship, airplane and all cargo stops belong to stations / outside connections: pass
+        /// their stop id, the station (or outside connection) id, or {x,z} near one (nearest fitting stop within
+        /// snap=300 m). cargo:true makes a cargo route (Cargo Train/Ship/Airplane Route) through cargo stops. The line
+        /// is a closed loop through the stops in order. Its preview is pathfound segment by segment (pathCheck); a
+        /// real build with a segment that has no vehicle path is not applied unless allowBroken:true. A dry run with
+        /// new stops previews the line through plain waypoints next to the planned stop positions.
         /// </summary>
         object BusLine(Args a)
         {
@@ -477,98 +499,62 @@ namespace ClaudeCityBridge
             if (tool.Busy) return new ApiError("agent tool is busy", 409);
             var type = ParseTransportType(a.Str("type", "bus"));
             if (type == Game.Prefabs.TransportType.None) return new ApiError("unknown transport type " + a.Str("type"));
-            var linePrefab = a.Has("prefab") ? FindPrefab(a.Str("prefab"), e => IsLinePrefab(e, type)) : DefaultPrefab(e => IsLinePrefab(e, type));
-            if (linePrefab == Entity.Null) return new ApiError("no " + type + " line prefab found (GET /transitprefabs)");
+            bool cargo = a.B("cargo");
+            var linePrefab = a.Has("prefab") ? FindPrefab(a.Str("prefab"), e => IsLinePrefab(e, type, cargo)) : DefaultPrefab(e => IsLinePrefab(e, type, cargo));
+            if (linePrefab == Entity.Null) return new ApiError("no " + type + (cargo ? " cargo route" : " line") + " prefab found (GET /transitprefabs)");
             if (IsLocked(linePrefab)) return new ApiError(PrefabName(linePrefab) + " is still locked");
-            var stopPrefab = a.Has("stopPrefab") ? FindPrefab(a.Str("stopPrefab"), e => IsStopPrefab(e, type)) : DefaultPrefab(e => IsStopPrefab(e, type));
             var list = a.List("stops");
-            if (list == null || list.Count < 2) return new ApiError("stops: at least 2 entries (stop ids, {edge,t,side} or {x,z})");
+            if (list == null || list.Count < 2) return new ApiError("stops: at least 2 entries (stop ids, station ids, {edge,t,side} or {x,z})");
             bool dry = a.B("dryRun");
 
-            var jobs = new List<AgentToolSystem.BuildJob>();
+            var plan = new StopPlan
+            {
+                Type = type, Cargo = cargo, Dry = dry,
+                StopQuery = em.CreateEntityQuery(ComponentType.ReadOnly<RouteStop>(), ComponentType.Exclude<Deleted>(), ComponentType.Exclude<Temp>()),
+            };
+            if (!cargo)
+                plan.StopPrefab = a.Has("stopPrefab") ? FindPrefab(a.Str("stopPrefab"), e => IsStopPrefab(e, type))
+                    : DefaultPrefab(e => IsStopPrefab(e, type) && !IsIntegratedName(PrefabName(e)));
             var stopReport = new List<object>();
             var resolvers = new List<Func<Entity>>();
-            var stopQuery = em.CreateEntityQuery(ComponentType.ReadOnly<RouteStop>(), ComponentType.Exclude<Deleted>(), ComponentType.Exclude<Temp>());
-            var planned = new List<KeyValuePair<float3, StopJob>>(); // the same new stop listed twice -> one job
+            var proxies = new List<float3?>();
             for (int i = 0; i < list.Count; i++)
             {
-                var o = list[i];
-                var r = new Dictionary<string, object> { { "index", i } };
-                stopReport.Add(r);
-                if (o is Dictionary<string, object> d)
-                {
-                    var err = ParseStopSpec(d, out var edge, out var t, out var right, out var anchor);
-                    if (err != null) return new ApiError("stop " + i + ": " + err);
-                    if (stopPrefab == Entity.Null) return new ApiError("no " + type + " stop prefab found");
-                    if (IsLocked(stopPrefab)) return new ApiError(PrefabName(stopPrefab) + " is still locked");
-                    var probe = new Dictionary<string, object>();
-                    if (!SnapStop(edge, t, right, stopPrefab, out var cp, probe)) return new ApiError("stop " + i + ": " + probe["error"]);
-                    var ex = ExistingStopNear(edge, cp.m_Position, right, type, 12f);
-                    if (ex != Entity.Null)
-                    {
-                        r["stopId"] = Id(ex); r["reused"] = true;
-                        var captured = ex;
-                        resolvers.Add(() => captured);
-                        continue;
-                    }
-                    var same = planned.FirstOrDefault(kv => kv.Value.Edge == edge && kv.Value.Right == right && math.distance(kv.Key.xz, cp.m_Position.xz) < 12f);
-                    if (same.Value != null)
-                    {
-                        r["sameAsNewStopOf"] = jobs.IndexOf(same.Value);
-                        var sj = same.Value;
-                        resolvers.Add(() => sj.Placed);
-                        continue;
-                    }
-                    var job = new StopJob { Api = this, Prefab = stopPrefab, Edge = edge, T = t, Right = right, Anchor = anchor, DryRun = dry };
-                    planned.Add(new KeyValuePair<float3, StopJob>(cp.m_Position, job));
-                    r["new"] = true; r["pos"] = probe["pos"]; r["edge"] = probe["edge"]; r["side"] = probe["side"];
-                    r["job"] = jobs.Count;
-                    jobs.Add(job);
-                    resolvers.Add(() => job.Placed);
-                }
-                else
-                {
-                    var s = Resolve(o, stopQuery);
-                    if (s == Entity.Null || !em.HasComponent<RouteStop>(s)) return new ApiError("stop " + i + ": not a transport stop id: " + o);
-                    var pf = em.GetComponentData<PrefabRef>(s).m_Prefab;
-                    if (!em.HasComponent<TransportStopData>(pf) || em.GetComponentData<TransportStopData>(pf).m_TransportType != type)
-                        return new ApiError("stop " + i + " (" + o + ") is not a " + type + " stop");
-                    r["stopId"] = Id(s);
-                    var captured = s;
-                    resolvers.Add(() => captured);
-                }
+                var err = PlanStop(list[i], i, plan, out var ps);
+                if (err != null) return new ApiError(err);
+                stopReport.Add(ps.Report);
+                resolvers.Add(ps.Resolve);
+                proxies.Add(ps.Proxy);
             }
 
             UnityEngine.Color32 color;
             if (!TryParseColor(a.Str("color"), out color))
                 TryParseColor(LinePalette[AllRoutes().Count % LinePalette.Length], out color);
 
-            LineJob lineJob = null;
-            bool newStops = jobs.Count > 0;
-            if (!(dry && newStops))
-            {
-                lineJob = new LineJob { Api = this, RoutePrefab = linePrefab, Color = color, Stops = resolvers, DryRun = dry };
-                jobs.Add(lineJob);
-            }
+            var jobs = new List<AgentToolSystem.BuildJob>(plan.Jobs);
+            var lineJob = new LineJob { Api = this, RoutePrefab = linePrefab, Color = color, Stops = resolvers, Proxies = proxies, DryRun = dry };
+            jobs.Add(lineJob);
+            var watch = new LinePathWatch(this, lineJob, linePrefab, Entity.Null, a.B("allowBroken"));
             var depots = BusDepots(type);
             foreach (var j in jobs) tool.Enqueue(j);
-            if (jobs.Count == 0) return new ApiError("nothing to do");
 
             var stopJobs = jobs.OfType<StopJob>().ToList();
             return new ChainOperation(jobs, () =>
             {
                 var res = new Dictionary<string, object>
                 {
-                    { "linePrefab", PrefabName(linePrefab) }, { "color", ColorHex(color) }, { "dryRun", dry },
+                    { "linePrefab", PrefabName(linePrefab) }, { "cargo", cargo }, { "color", ColorHex(color) }, { "dryRun", dry },
                     { "stops", stopReport },
                     { "newStops", stopJobs.Select(j => (object)j.Result).ToList() },
+                    { "line", lineJob.Result },
+                    { "pathCheck", watch.Report() },
                 };
-                if (lineJob != null) res["line"] = lineJob.Result;
-                else res["line"] = "not previewed: a dry run cannot preview a line through stops that do not exist yet (stops above are previewed)";
-                if (lineJob != null && lineJob.Placed != Entity.Null) res["lineId"] = Id(lineJob.Placed);
-                if (depots.Count == 0) res["warning"] = "no " + type + " depot in the city: the line gets no vehicles until one is built (e.g. POST /building {prefab:\"BusDepot01\", edge, t, side})";
+                if (lineJob.Placed != Entity.Null) res["lineId"] = Id(lineJob.Placed);
+                if (watch.Blocked != null) res["blocked"] = watch.Blocked;
+                if (dry && stopJobs.Count > 0) res["note"] = "dry run: new stops are previewed separately; the line preview used plain waypoints next to the planned stop positions";
+                if (depots.Count == 0) res["warning"] = "no " + type + " depot in the city: the line gets no vehicles until one is built (bus: BusDepot01, tram: TramDepot01, train: RailYard01/02, subway: SubwayYard01)";
                 return res;
-            });
+            }) { OnStep = watch.Observe };
         }
 
         List<object> BusDepots(Game.Prefabs.TransportType type)
@@ -634,10 +620,15 @@ namespace ClaudeCityBridge
             return new Dictionary<string, object> { { "count", total }, { "stops", res } };
         }
 
-        /// <summary>GET /lines?type=bus|all: transport lines with stops, vehicles, passengers and depots.</summary>
+        /// <summary>
+        /// GET /lines?type=bus|all: transport lines with stops, vehicles, passengers and depots, the path state of every
+        /// segment (stop i -> stop i+1: ok | pending | failed) and broken = a segment has no vehicle path (the game
+        /// shows Pathfind Failed on its waypoints; complete only says the loop is closed).
+        /// </summary>
         object Lines(string typeName)
         {
             var type = ParseTransportType(typeName);
+            var icons = IconsByOwner();
             var q = em.CreateEntityQuery(ComponentType.ReadOnly<Route>(), ComponentType.ReadOnly<TransportLine>(), ComponentType.ReadOnly<PrefabRef>(), ComponentType.Exclude<Deleted>(), ComponentType.Exclude<Temp>());
             var res = new List<object>();
             using (var arr = q.ToEntityArray(Allocator.Temp))
@@ -650,7 +641,7 @@ namespace ClaudeCityBridge
                     var route = em.GetComponentData<Route>(e);
                     var d = new Dictionary<string, object>
                     {
-                        { "id", Id(e) }, { "prefab", PrefabName(pf) }, { "type", tld.m_TransportType.ToString() },
+                        { "id", Id(e) }, { "prefab", PrefabName(pf) }, { "type", tld.m_TransportType.ToString() }, { "cargo", tld.m_CargoTransport },
                         { "number", em.HasComponent<RouteNumber>(e) ? em.GetComponentData<RouteNumber>(e).m_Number : 0 },
                         { "color", em.HasComponent<RouteColor>(e) ? ColorHex(em.GetComponentData<RouteColor>(e).m_Color) : null },
                         { "complete", (route.m_Flags & RouteFlags.Complete) != 0 },
@@ -667,8 +658,10 @@ namespace ClaudeCityBridge
                             var wp = wps[i].m_Waypoint;
                             if (!em.HasComponent<WaypointConnected>(wp)) continue;
                             var stop = em.GetComponentData<WaypointConnected>(wp).m_Connected;
-                            var s = new Dictionary<string, object> { { "stopId", Id(stop) } };
+                            var s = new Dictionary<string, object> { { "stopId", Id(stop) }, { "index", i } };
                             if (em.HasComponent<PrefabRef>(stop)) s["prefab"] = PrefabName(em.GetComponentData<PrefabRef>(stop).m_Prefab);
+                            var wic = IconList(icons, wp);
+                            if (wic != null) s["icons"] = wic;
                             if (em.HasComponent<RoutePosition>(wp)) s["pos"] = F2(em.GetComponentData<RoutePosition>(wp).m_Position);
                             if (em.HasComponent<WaitingPassengers>(wp))
                             {
@@ -694,6 +687,22 @@ namespace ClaudeCityBridge
                     }
                     d["length"] = Math.Round(length, 0);
                     d["duration"] = Math.Round(duration, 0);
+                    var segRows = new List<object>();
+                    if (LineSegments(e, segRows, out var failedSegs, out var pendingSegs))
+                    {
+                        d["broken"] = failedSegs > 0;
+                        d["failedSegments"] = failedSegs;
+                        if (pendingSegs > 0) d["pendingSegments"] = pendingSegs;
+                        // compact: every segment's status and length; from/to for the ones that are not ok
+                        d["segments"] = segRows.Select(o =>
+                        {
+                            var sr = (Dictionary<string, object>)o;
+                            var c = new Dictionary<string, object> { { "i", sr["i"] }, { "status", sr["status"] } };
+                            if (sr.TryGetValue("length", out var sl)) c["length"] = sl;
+                            if ((string)sr["status"] != "ok") { c["from"] = sr.TryGetValue("from", out var f) ? f : null; c["to"] = sr.TryGetValue("to", out var t2) ? t2 : null; if (sr.TryGetValue("pathFlags", out var pfl)) c["pathFlags"] = pfl; }
+                            return (object)c;
+                        }).ToList();
+                    }
                     int vehicles = 0, passengers = 0;
                     if (em.HasBuffer<RouteVehicle>(e))
                     {

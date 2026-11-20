@@ -64,7 +64,7 @@
   },
   {
    "name": "Southwest Quarter",
-   "gameDistrict": null,
+   "gameDistrict": "Southwest Quarter",
    "bbox": [
     -4030,
     -920,
@@ -78,12 +78,12 @@
   },
   {
    "name": "Northwest",
-   "gameDistrict": null,
+   "gameDistrict": "Northwest",
    "bbox": [
-    -3100,
+    -2794,
     2190,
-    -2310,
-    3500
+    -2308,
+    3418
    ],
    "owner": "builder-west",
    "phase": "building",
@@ -145,7 +145,7 @@
   },
   {
    "name": "Waterfront",
-   "gameDistrict": null,
+   "gameDistrict": "Waterfront",
    "bbox": [
     -1100,
     130,
@@ -172,7 +172,7 @@
   },
   {
    "name": "South gateway",
-   "gameDistrict": null,
+   "gameDistrict": "South gateway",
    "bbox": [
     -2500,
     -2180,
@@ -238,7 +238,7 @@
   },
   {
    "name": "NE utilities",
-   "gameDistrict": null,
+   "gameDistrict": "NE utilities",
    "bbox": [
     -400,
     3400,
@@ -431,7 +431,7 @@
    "phase": "new",
    "character": "research park on the ridge east of University Hill: Radio Telescope and later the geological station and collider in meadow and trees, no homes",
    "tiles": [],
-   "gameDistrict": null
+   "gameDistrict": "Science Ridge"
   }
  ]
 }

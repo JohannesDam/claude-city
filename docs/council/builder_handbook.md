@@ -26,8 +26,10 @@ the start of your shift; it replaces the per-round worker prompt of the old coun
 
 ## The lock ("busy tone")
 
-- The mod holds a first-come-first-served build lock. `cc.paused(who)` queues for it, pauses the game, and
-  releases it (resuming the game only when nobody else waits). `GET /lock` shows who builds and who waits.
+- The mod holds a first-come-first-served build lock. `cc.paused(who)` queues for it; the game is paused only
+  right before your first REAL change in the block (dry runs let the simulation run) and resumed when the block
+  ends. `GET /lock` shows who builds and who waits. Keep blocks short: the lock is busy ~80% of the time.
+- `python -I worklist.py claim <id> <you>` claims a specific item when the conductor gives you an order.
 - Think outside the lock, check at build time: the city changes while you plan, so every build call
   re-validates (overlap, demolition refusal). A stale plan fails safely; re-survey and adapt.
 - Build calls without the lock get HTTP 423 "busy" while someone else builds; `cc.post` handles the lock

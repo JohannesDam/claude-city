@@ -52,6 +52,8 @@ def post(path, body=None, **q):
     if path in BUILD_PATHS and not paused.held():
         with paused():
             return post(path, body, **q)
+    if path in BUILD_PATHS and not (isinstance(body, dict) and body.get("dryRun")):
+        paused.pause_game()  # real changes run with the game paused; dry runs let the simulation keep going
     res = call("POST", path, body or {}, **q)
     if isinstance(res, dict) and res.get("busy") and paused.held():
         # our lease expired (no call for TTL seconds) and somebody else builds now: queue again, retry once
@@ -106,6 +108,7 @@ class _BuildLock:
         self.fh = None
         self.token = None
         self.who = None
+        self.game_paused = False
 
     def server_acquire(self, who=None, poll=0.5):
         """Queue for the server lock until granted. Degrades to no server lock when the game or plugin is
@@ -228,9 +231,11 @@ BUILD_LOCK = _BuildLock()
 
 
 class paused:
-    """Hold the build lock and pause the simulation while building (rapid builds during 4x simulation
-    crashed the game a few times); resumes at full speed afterwards, also when the block raises.
-    Nested use is fine; only the outermost block pauses/resumes."""
+    """Hold the build lock for a batch of changes. The simulation is paused lazily, right before the first
+    REAL change in the block (rapid builds during 4x simulation crashed the game a few times; paused builds
+    never did). Dry runs and surveys inside the block leave the simulation running - a dry run is the same
+    tool preview a player sees while hovering, which the game does at any speed. On exit the game resumes if
+    this block paused it. Nested use is fine; only the outermost block resumes."""
     def __init__(self, who=None):
         self.who = who
 
@@ -238,19 +243,26 @@ class paused:
     def held():
         return BUILD_LOCK.depth > 0
 
+    @staticmethod
+    def pause_game():
+        """Pause the simulation (once per outermost block) - called by post() before a real change."""
+        if BUILD_LOCK.depth and not BUILD_LOCK.game_paused:
+            call("POST", "/speed", {"speed": 0})
+            BUILD_LOCK.game_paused = True
+
     def __enter__(self):
         outer = not BUILD_LOCK.depth
         BUILD_LOCK.acquire(self.who)
         self.outer = outer
         if outer:
-            call("POST", "/speed", {"speed": 0})
+            BUILD_LOCK.game_paused = False
         return self
 
     def __exit__(self, *exc):
         try:
-            # another builder already queued: leave the game paused for them (no pause/resume churn)
-            if self.outer and not BUILD_LOCK.queue_length():
+            if self.outer and BUILD_LOCK.game_paused:
                 call("POST", "/speed", {"speed": 3})
+                BUILD_LOCK.game_paused = False
         finally:
             BUILD_LOCK.release()
         return False

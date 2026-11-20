@@ -7,6 +7,7 @@ status: open -> claimed -> done | failed | deferred.
 CLI (builders):
   python -I worklist.py next <builder>          claim the best open item for this builder (prints it as JSON)
   python -I worklist.py mine <builder>          claimed + open items for this builder
+  python -I worklist.py claim <id> <builder>     claim a specific open item
   python -I worklist.py done <id> [--spent N] [--note TEXT]
   python -I worklist.py fail <id> --note TEXT
   python -I worklist.py defer <id> --note TEXT
@@ -100,6 +101,22 @@ def cmd_next(who):
         it.update(status="claimed", claimedBy=who, claimedAt=time.strftime("%Y-%m-%d %H:%M:%S"))
         save(d)
         print(json.dumps(it, indent=1, ensure_ascii=True))
+
+
+def cmd_claim(item_id, who):
+    """Claim a specific open item (when the conductor's order differs from the priority order)."""
+    with _FileLock():
+        d = load()
+        for i in d["items"]:
+            if i["id"] == item_id:
+                if i["status"] != "open":
+                    print(json.dumps({"error": f"{item_id} is {i['status']}"}))
+                    return
+                i.update(status="claimed", claimedBy=who, claimedAt=time.strftime("%Y-%m-%d %H:%M:%S"))
+                save(d)
+                print(json.dumps(i, indent=1, ensure_ascii=True))
+                return
+    print(json.dumps({"error": f"no item {item_id}"}))
 
 
 def cmd_mine(who):
@@ -198,6 +215,8 @@ def main():
     c = a[0]
     if c == "next":
         cmd_next(a[1])
+    elif c == "claim":
+        cmd_claim(a[1], a[2])
     elif c == "mine":
         cmd_mine(a[1])
     elif c in ("done", "fail", "defer"):

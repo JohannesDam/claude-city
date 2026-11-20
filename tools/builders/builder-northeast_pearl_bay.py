@@ -16,7 +16,7 @@ import json
 import sys
 
 sys.path.insert(0, r"C:\soft\cityskyline\tools")
-from cc import post, paused, short  # noqa: E402
+from cc import get, post, paused, short  # noqa: E402
 
 sys.stdout.reconfigure(encoding="utf-8")
 WHO = "builder-northeast"
@@ -58,6 +58,71 @@ def log(key, val):
         d = {}
     d[key] = val
     json.dump(d, open(LOG, "w"), indent=1)
+
+
+CRESCENTS = {
+    # west: crescent from the boulevard round the north (homes stay south of z 2450)
+    "pearl crescent": {"prefab": "Small Road", "curve": "smooth",
+                       "points": [[-120, 2234], [-75, 2345], [40, 2405], [180, 2375], [270, 2250], [300, 2110],
+                                  [330, 1910]]},
+    "shell close": {"prefab": "Small Road", "curve": "smooth", "points": [[90, 2110], [105, 2200], [95, 2290]]},
+    # middle: between the boulevard and the farm buffer (z < 2040 for x > 580)
+    "coral crescent": {"prefab": "Small Road", "curve": "smooth",
+                       "points": [[520, 1862], [535, 1960], [650, 2025], [760, 1990], [800, 1790]]},
+    # east of the Farm Link
+    "dune crescent": {"prefab": "Small Road", "curve": "smooth",
+                      "points": [[862, 1950], [990, 2020], [1150, 2015], [1270, 1935], [1325, 1850]]},
+    # south of the boulevard on the east headland
+    "headland loop": {"prefab": "Small Road", "curve": "smooth",
+                      "points": [[920, 1790], [935, 1680], [1080, 1625], [1250, 1660], [1320, 1745], [1325, 1850]]},
+}
+ROADS.update(CRESCENTS)
+
+
+def edges_along(points, prefab, tol=20):
+    """Current edges of `prefab` whose midpoint lies within tol m of the polyline."""
+    import math
+    xs, zs = [p[0] for p in points], [p[1] for p in points]
+    cx, cz = (min(xs) + max(xs)) / 2, (min(zs) + max(zs)) / 2
+    r = max(max(xs) - min(xs), max(zs) - min(zs)) / 2 + 80
+    segs = get("/nets", x=cx, z=cz, radius=r, filter=prefab).get("segments") or []
+    out = []
+    for sg in segs:
+        if sg.get("prefab") != prefab:
+            continue
+        mx, mz = (sg["start"][0] + sg["end"][0]) / 2, (sg["start"][1] + sg["end"][1]) / 2
+        best = 1e9
+        for (ax, az), (bx, bz) in zip(points, points[1:]):
+            dx, dz = bx - ax, bz - az
+            L2 = dx * dx + dz * dz or 1
+            t = max(0, min(1, ((mx - ax) * dx + (mz - az) * dz) / L2))
+            best = min(best, math.hypot(ax + t * dx - mx, az + t * dz - mz))
+        if best <= tol:
+            out.append(sg)
+    return out
+
+
+def side_towards(sg, ref):
+    """'left' if ref lies left of the segment direction, else 'right'."""
+    (sx, sz), (ex, ez) = sg["start"], sg["end"]
+    return "left" if (ex - sx) * (ref[1] - sz) - (ez - sz) * (ref[0] - sx) > 0 else "right"
+
+
+def zone_side(zone_name, points, prefab, ref, towards=True, depth=6, dry=False):
+    """Zone one side of a road (the side towards `ref`, or away from it) with `zone_name`."""
+    groups = {"left": [], "right": []}
+    for sg in edges_along(points, prefab):
+        sd = side_towards(sg, ref)
+        if not towards:
+            sd = "left" if sd == "right" else "right"
+        groups[sd].append(sg["id"])
+    res = []
+    for sd, ids in groups.items():
+        if ids:
+            r = post("/zone", {"zone": zone_name, "mode": "road", "edges": ids, "depth": depth, "side": sd,
+                               "dryRun": dry})
+            res.append((sd, len(ids), r.get("cellsChanged"), r.get("errors"), r.get("error")))
+    return res
 
 
 if __name__ == "__main__":

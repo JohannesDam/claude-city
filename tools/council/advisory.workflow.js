@@ -38,9 +38,9 @@ const DEPTS = [
     focus: 'Make every district beautiful: park coverage per district, trees on arterials, noise and air pollution near homes, promenades, landmarks/signature buildings, tourism (hotels are 100% full - hotel capacity caps tourism).' },
   { key: 'mobility', title: 'Alderman of Transport', section: '## 9',
     focus: 'Road hierarchy (ring + radial arterials, roundabouts at the worst junctions, /stuck, traffic hotspots) and PUBLIC TRANSPORT BEYOND BUSES: passenger rail (stations unlocked, 0 built), trams (depot unlocked, 0 built), subway (dev node bought), taxis, bus stations. Which districts get which mode, along which corridors?' },
-  { key: 'renewal', title: 'Alderman of Urban Renewal (stadsvernieuwing)', section: '## 1 and ## 9',
+  { key: 'renewal', title: 'Alderman of Urban Renewal', section: '## 1 and ## 9',
     focus: 'Districts in phase "renewal" in the register (Southwest Quarter, Old Southern Works) and any monotone grid worth rebuilding: the next ~500 m phase with its new layout (hierarchy, curved streets, local centre, parks), what it demolishes (households/jobs) and what it gives back.' },
-  { key: 'growth', title: 'Alderman of Growth, Land & Trade (gebiedsontwikkeling)', section: '## 2, ## 3 and ## 9',
+  { key: 'growth', title: 'Alderman of Growth, Land & Trade (area development)', section: '## 2, ## 3 and ## 9',
     focus: 'New land and new kinds of city: tile purchases (/tiles: 52 adjacent candidates, 32 of them gaps inside our area), new districts with a character and a builder, trade and the unused outside connections (2 ship, 2 airplane - harbour and airport dev nodes now bought, cargo terminals), new unlocks and signature buildings (logs/council/opportunities.json), remaining dev points (13: international airport needs 8). Propose new districts as district "NEW:<name>" with newDistrict filled in.' },
 ]
 if (args.focus) for (const d of DEPTS) if (args.focus[d.key]) d.focus = args.focus[d.key]

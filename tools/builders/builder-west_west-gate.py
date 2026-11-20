@@ -239,6 +239,36 @@ def stage_north():
     print(json.dumps({"services": out, "capacityHouseholds": round(cap)}))
 
 
+GREEN_CLOSE = [[-2831.8, 1065], [-2770, 1065]]
+
+
+def stage_green():
+    """Follow-up: High buildings grew on the ring's inner frontage within a minute, so the interior had no access
+    for the park. A short tree-lined cul-de-sac from the west apex node (replaces 1 new L1 tower) opens it."""
+    out = {}
+    with paused(WHO):
+        r = build_road("Small Road", "Green Close", GREEN_CLOSE, curve=False, dry=DRY)
+        if DRY or not (r or {}).get("applied"):
+            return
+        time.sleep(1)
+        beautify(GREEN_CLOSE, "Small Road", ("Trees",), tol=8)
+        for p in ("CityPark11", "CityPark03", "CityPark08"):
+            out["green"] = place(p, (-2790, -2670, 1000, 1130), (-2725, 1065), radius=120)
+            if out["green"]:
+                out["greenPrefab"] = p
+                break
+        # the west links: trees + LowRent (missed in the north stage)
+        for zz in (1010, 1120):
+            t = post("/roadupgrade", {"box": [-2864, zz - 4, -2824, zz + 4], "prefabFilter": "Small Road", "upgrade": "Trees", "side": "both"})
+            print(f"  Trees west link z={zz}: {short(t, ('applied', 'cost', 'errors'))}", flush=True)
+            for s in segs_near(-2842, zz, 30, prefabs=("Small Road",)):
+                mx, mz = (s["start"][0] + s["end"][0]) / 2, (s["start"][1] + s["end"][1]) / 2
+                if -2864 < mx < -2822 and abs(mz - zz) < 3:
+                    z = zone("Residential LowRent", mode="road", edges=[s["id"]], depth=3, side="both", overwrite=False)
+                    print(f"  LowRent {s['id']}: {short(z, ('cellsChanged', 'occupiedCellsRezoned'))}", flush=True)
+    print(json.dumps(out))
+
+
 def stage_south():
     cap = 0.0
     out = {}
@@ -266,17 +296,22 @@ def stage_south():
             out["shelter"] = place("EmergencyShelter01", (SCX - SA - 30, SCX + SA + 30, 765, 895), (SCX, 800))
         out["pocket"] = place("PocketPark08", inner, (SCX, 790))
         cells = {}
-        cells["NA Residential Mixed"] = zone_rect("NA Residential Mixed", [-2860, 848, -2606, 892], overwrite=True)
-        cells["NA Residential Medium Row"] = zone_rect("NA Residential Medium Row", [-2860, 766, -2606, 848], overwrite=True)
+        cells["NA Residential Mixed"] = zone_rect("NA Residential Mixed", [-2860, 858, -2606, 892], overwrite=True)
+        cells["NA Residential Medium Row"] = zone_rect("NA Residential Medium Row", [-2860, 766, -2606, 798], overwrite=True)
         for s in segs_near(SCX, 810, 140, prefabs=("Small Road",)):
             mx, mz = (s["start"][0] + s["end"][0]) / 2, (s["start"][1] + s["end"][1]) / 2
-            if ((mx - SCX) / SA) ** 2 + ((mz - 760) / SB) ** 2 > 0.75 and 765 < mz < 860:
-                z = zone("NA Residential Medium", mode="road", edges=[s["id"]], depth=4, side="both", overwrite=False)
-                cells["NA Residential Medium"] = cells.get("NA Residential Medium", 0) + (z.get("cellsChanged") or 0)
+            q = ((mx - SCX) / SA) ** 2 + ((mz - 760) / SB) ** 2
+            if 0.75 < q < 1.3 and 765 < mz < 860:
+                (sx, sz), (ex, ez) = s["start"], s["end"]
+                right_in = (ez - sz) * (SCX - mx) - (ex - sx) * (790 - mz) > 0
+                inner, outer = ("right", "left") if right_in else ("left", "right")
+                for name, side in (("NA Residential Medium", outer), ("Residential LowRent", inner)):
+                    z = zone(name, mode="road", edges=[s["id"]], depth=3, side=side, overwrite=False)
+                    cells[name] = cells.get(name, 0) + (z.get("cellsChanged") or 0)
         cap = sum(n * PER_CELL[k] for k, n in cells.items())
         print("zoned cells:", cells, flush=True)
     print(json.dumps({"services": out, "capacityHouseholds": round(cap)}))
 
 
 if __name__ == "__main__":
-    {"plan": stage_plan, "north": stage_north, "south": stage_south}[sys.argv[1]]()
+    {"plan": stage_plan, "north": stage_north, "green": stage_green, "south": stage_south}[sys.argv[1]]()

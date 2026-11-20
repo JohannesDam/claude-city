@@ -30,7 +30,7 @@ namespace ClaudeCityBridge
         static readonly HashSet<string> LockedPaths = new HashSet<string> {
             "/road", "/zone", "/building", "/upgrade", "/bulldoze", "/buytile", "/roadupgrade", "/busstop", "/busline",
             "/nodeupgrade", "/roundabout", "/extension", "/area", "/area/delete", "/buildingaction",
-            "/line", "/line/edit", "/line/delete",
+            "/line", "/line/edit", "/line/delete", "/place", "/roadfit",
         };
 
         static long Now => Environment.TickCount;

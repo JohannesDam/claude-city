@@ -38,7 +38,7 @@ def get(path, **q):
 # endpoints that change the city: they always run while holding the build lock with the game paused
 BUILD_PATHS = {"/road", "/zone", "/building", "/upgrade", "/bulldoze", "/buytile", "/roadupgrade", "/busstop", "/busline",
                "/nodeupgrade", "/roundabout", "/extension", "/area", "/area/delete", "/buildingaction",
-               "/line", "/line/edit", "/line/delete"}
+               "/line", "/line/edit", "/line/delete", "/place", "/roadfit"}
 
 
 # builds that may remove zoned buildings (homes, shops, offices, factories) refuse to do so unless the caller passes

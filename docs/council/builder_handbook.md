@@ -102,13 +102,27 @@ buildings; otherwise every new building shows Water/Sewage notifications and sta
 - `/roundabout` refuses demolition unless `allowDemolish=True` (cc sends False); `/zone` may report
   occupiedCellsRezoned > 0 with overwrite=False for unzoned cells under parks - harmless.
 
+## Placing in one call: /place and /roadfit (use these first)
+
+- `post("/place", {"prefab":..., "near":[x,z], "within":<your district bbox>, "radius":300, "maxHouseholds":0,
+  "maxCompanies":0, "dryRun":True})` - the server takes /findspot candidates (city limits with margin, water rules,
+  true footprint incl. quays/rotors), previews them with the game's own validation and returns the first that
+  passes (`chosen`, ranked `candidates` with errors, demolition, roadConnected, corners). Without dryRun it builds
+  it (`placed`, `placedId`). Raise maxHouseholds/maxCompanies to allow clearing (make_room-style limits).
+  `all:True` previews every candidate and builds the one with the least demolition.
+- `post("/roadfit", {"prefab":"Small Road", "points":[[x,z],...] | "start":..,"end":.., "startDir"?, "endDir"?,
+  "fit":{"tolerance":30, "minRadius":60}, "dryRun":True})` (or `/road` with `fit`) - tries a small set of variants
+  (tangent arcs, nudged midpoints, junction slid along the edge, smaller class at the tie-in) and builds the first clean
+  one; returns `geometry` and the equivalent `/road` body. Prefer start/end directions over a midpoint for ramps.
+- One /place or /roadfit call replaces the probe loop of 5-15 dry runs: fewer tokens, less lock time.
+
 ## Big buildings: find land, buy land, or make room
 
 The owner noticed builders giving up on big buildings that "don't fit". Don't give up, and don't settle for a
 bad site far away from where the building is needed. In this order:
 
-1. A clean site near where it is needed: `place_smart(prefab, x, z, radius=500..800)`; `/freeland` to see
-   empty land.
+1. A clean site near where it is needed: `/place` (above) or `place_smart(prefab, x, z, radius=500..800)`; `/freeland`
+   to see empty land.
 2. Buy land: an adjacent tile costs $0.05-0.5M (`GET /tiles` candidates with price and upkeepIncrease), when
    the building still serves its purpose there (coverage radius, access).
 3. Make room: `make_room(prefab, x, z, radius=500, dry=True)` lists sites that replace zoned buildings,

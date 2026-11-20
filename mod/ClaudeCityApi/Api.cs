@@ -68,9 +68,11 @@ namespace ClaudeCityBridge
                 case "/roundabouts": return RequireGame() ?? Roundabouts(p);
                 case "/roundabout": return RequireGame() ?? Safety(Roundabout(p.Body), p.Body);
                 case "/prefabs": return RequireGame() ?? Prefabs(p.Q("category", "all"), p.Q("filter"), p.Q("unlockedOnly", "false") == "true");
-                case "/road": return RequireGame() ?? Safety(Road(p.Body), p.Body);
+                case "/road": return RequireGame() ?? (WantsFit(p.Body) ? RoadFit(p) : Safety(Road(p.Body), p.Body));
+                case "/roadfit": return RequireGame() ?? RoadFit(p);
                 case "/zone": return RequireGame() ?? Zone(p.Body);
                 case "/building": return RequireGame() ?? Safety(PlaceBuilding(p.Body), p.Body);
+                case "/place": return RequireGame() ?? Place(p);
                 case "/buildings": return RequireGame() ?? Buildings(p.QF("x", 0), p.QF("z", 0), p.QF("radius", 1e6f), p.Q("kind", "service"), (int)p.QF("offset", 0), (int)p.QF("limit", 300));
                 case "/problems": return RequireGame() ?? Problems(p.Q("type"));
                 case "/save": return RequireGame() ?? new SaveOperation(this, p.Body.Str("name"));

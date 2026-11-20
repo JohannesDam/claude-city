@@ -594,12 +594,34 @@ namespace ClaudeCityBridge
             readonly HashSet<string> problemKeys = new HashSet<string>();
             int snapshots, settled;
             string blocked;
+            string customBlock; // Block(): a caller's own reason (e.g. /place demolition limits)
 
             /// <summary>Replaces the default note on via=geometry entries (e.g. extensions, whose preview never flags growables).</summary>
             public string GeometryNote;
 
             /// <summary>Growable lots under the footprint by our calculation (known before the tool runs).</summary>
             public int GeometryHitCount => geometryHits.Count;
+
+            /// <summary>Every building the build would remove as far as known now: settled preview snapshots, the latest snapshot and the footprint's growable lots.</summary>
+            public List<Entity> Current()
+            {
+                var res = new List<Entity>(demolish);
+                if (last != null) foreach (var e in last.Demolish) if (!res.Contains(e)) res.Add(e);
+                foreach (var e in geometryHits) if (!res.Contains(e)) res.Add(e);
+                return res;
+            }
+
+            /// <summary>
+            /// Switches a real build to a dry run while the tool has not evaluated it yet (State &lt;= 5), with the
+            /// caller's reason as 'blocked'. False when it is a dry run already or too late.
+            /// </summary>
+            public bool Block(string reason)
+            {
+                if (job.DryRun || job.Done || job.State > 5) return false;
+                job.DryRun = true;
+                customBlock = reason;
+                return true;
+            }
 
             public DemolishWatch(Api api, AgentToolSystem.BuildJob job, bool allowDemolish)
             {
@@ -685,7 +707,12 @@ namespace ClaudeCityBridge
                     r["wouldDemolishNote"] = GeometryNote ?? (preview
                         ? "via=geometry: the lot overlaps the new footprint by our calculation but the game's preview did not flag it (bridge/tunnel height, intersection shape or width approximation); via=preview/both is what the game removes"
                         : "no preview was captured; entries come from the lot-overlap calculation only");
-                if (blocked != null)
+                if (customBlock != null)
+                {
+                    r["blocked"] = customBlock + "; nothing was built";
+                    r["applied"] = false;
+                }
+                else if (blocked != null)
                 {
                     r["blocked"] = blocked + " (allowDemolish=false); nothing was built";
                     r["applied"] = false;

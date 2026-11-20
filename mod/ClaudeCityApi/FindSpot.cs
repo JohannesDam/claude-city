@@ -39,7 +39,8 @@ namespace ClaudeCityBridge
         // ------------------------------------------------------------------ obstacle model
 
         const int K_BUILDING = 0, K_OBJECT = 1, K_ROAD = 2, K_NET = 3, K_AREA = 4, K_LIMITS = 5, K_WATER = 6, K_STEEP = 7;
-        static readonly string[] KindNames = { "building", "object", "road", "net", "area", "cityLimits", "water", "steep", "zonedBuilding" }; // [8] = K_ZONED (Demolish.cs)
+        const int K_NOWATER = 9; // a shoreline/floating object (or a quay sub-object) without the water it needs (FindSpotWater.cs)
+        static readonly string[] KindNames = { "building", "object", "road", "net", "area", "cityLimits", "water", "steep", "zonedBuilding", "noWater" }; // [8] = K_ZONED (Demolish.cs)
         const float OverlapEps = 0.02f;   // penetration needed to count as overlap (game: 0.01 tolerance)
         const float WaterDepthLimit = 0.2f; // CheckSurface: InWater when sampled depth > 0.2 m
 
@@ -501,6 +502,7 @@ namespace ClaudeCityBridge
                     for (int i = 0; i < nodes.Length; i++) poly[i] = nodes[i].m_Position.xz;
                     set.AddPoly(poly, K_LIMITS, t, false);
                 }
+            CollectTiles(set); // owned/unowned tile polygons for the city-limits margin test (FindSpotWater.cs)
 
             // --- other areas: native protected areas and physical areas (e.g. building sub-lots)
             var aq = em.CreateEntityQuery(ComponentType.ReadOnly<Game.Areas.Area>(), ComponentType.ReadOnly<AreaNode>(), ComponentType.ReadOnly<AreaTriangle>(),
@@ -601,6 +603,14 @@ namespace ClaudeCityBridge
             // full mesh bounds, a circle when Circular) is tested only against obstacles reaching above LegTop
             public bool Standing; public float LegTop; public Bounds2 Upper; public bool UpperCircle; public float UpperR;
             public float LowTop => Standing ? LegTop : float.MaxValue;
+            // water rule of the main object (FindSpotWater.cs) and of sub-objects that need water (harbour quays)
+            public WaterRule Water = WaterRule.Dry;
+            public bool Floating;    // PlacementFlags.Floating: a shoreline object's front may be wet too
+            public Bounds2 Surface;  // the bounds CheckSurface samples (geometry bounds; standing: incl. the legs)
+            public readonly List<WaterPart> WaterParts = new List<WaterPart>();
+            // true footprint (geometry + sub-objects + sub-nets + sub-areas, object-local) and the city-limits margin
+            public Bounds2 Extent; public bool HasExtent;
+            public float LimitMargin = -1f; // < 0: only the plain city-limits obstacle test
         }
 
         object ReadLotSpec(Pending p, out LotSpec spec)
@@ -636,12 +646,16 @@ namespace ClaudeCityBridge
                     var pl = em.GetComponentData<PlaceableObjectData>(prefab).m_Flags;
                     spec.SkipWater = (pl & (Game.Objects.PlacementFlags.Shoreline | Game.Objects.PlacementFlags.Floating | Game.Objects.PlacementFlags.Underwater)) != 0;
                 }
+                ReadWaterAndExtent(prefab, spec); // FindSpotWater.cs
+                spec.LimitMargin = math.clamp(p.QF("limitMargin", 4f), -1f, 64f);
                 return null;
             }
             if (p.Q("w") != null && p.Q("d") != null)
             {
                 spec.Lot = new int2(math.clamp((int)p.QF("w", 1), 1, 100), math.clamp((int)p.QF("d", 1), 1, 100));
                 spec.Local = LotBounds(spec.Lot);
+                spec.Surface = spec.Local;
+                spec.LimitMargin = math.clamp(p.QF("limitMargin", 4f), -1f, 64f);
                 return null;
             }
             return new ApiError("give prefab=<name> or w=<cells>&d=<cells> (lot width along the road, depth away from it; 1 cell = 8 m)");
@@ -690,6 +704,7 @@ namespace ClaudeCityBridge
 
         /// <summary>
         /// GET /findspot?prefab=|w=&amp;d=&amp;x&amp;z&amp;radius=300&amp;n=5&amp;step=4&amp;setbacks=0.5,2,3.5 (or gap=)&amp;side=both&amp;filter=&amp;steep=0.25&amp;maxSteepPct=10&amp;deadEnds=0
+        ///   &amp;within=x0,z0,x1,z1 (lot corners inside the box)&amp;limitMargin=4 (m the true footprint keeps from unowned land)
         /// Ranked placements where the lot fits with its front on a road (same meaning as POST /building edge/t/side/gap).
         /// </summary>
         object FindSpot(Pending p)
@@ -708,6 +723,12 @@ namespace ClaudeCityBridge
             string sideQ = (p.Q("side", "both") ?? "both").ToLowerInvariant();
             string filter = p.Q("filter");
             bool deadEnds = QFlag(p, "deadEnds");
+            Bounds2? within = null;
+            if (p.Q("within") != null)
+            {
+                within = ParseBox(p.Q("within"));
+                if (within == null) return new ApiError("within must be x0,z0,x1,z1");
+            }
 
             float depth = spec.Depth;
             float lotSpan = math.length(spec.Local.max - spec.Local.min);
@@ -851,6 +872,14 @@ namespace ClaudeCityBridge
                     }
                 }
 
+            // within=x0,z0,x1,z1: only lots whose corners are all inside the box (e.g. a district's bbox)
+            int outsideWithin = 0;
+            if (within != null)
+            {
+                var box = within.Value;
+                outsideWithin = valid.RemoveAll(s => !Corners(ref s.Rect).All(v => v.x >= box.min.x && v.x <= box.max.x && v.y >= box.min.y && v.y <= box.max.y));
+            }
+
             // score: near the requested point, flat, room to slide, room behind/beside
             float distNorm = radius + depth;
             foreach (var s in valid)
@@ -926,7 +955,12 @@ namespace ClaudeCityBridge
                 { "ms", new Dictionary<string, object> { { "collect", msCollect }, { "total", sw.ElapsedMilliseconds } } },
                 { "usage", "POST /building with candidates[i].building (edge/t/side/gap reproduce exactly this position); buildingXZ is the same spot as x/z/angle. Higher score = better (near, flat, room to slide 'slack' m, 'roomy' = 2 m spare beside/behind). Each position tries the setbacks (m from the road edge to the lot front; setbacks=0.5,2,3.5 or gap=) smallest first; 'setback' is the one that fitted." },
             };
-            if (spec.SkipWater) r["note"] = "prefab is a shoreline/floating/underwater object: the no-water rule was not applied";
+            if (within != null)
+            {
+                ((Dictionary<string, object>)r["searched"])["outsideWithin"] = outsideWithin;
+                r["within"] = new List<object> { within.Value.min.x, within.Value.min.y, within.Value.max.x, within.Value.max.y };
+            }
+            AddSpecNotes(r, spec); // water rule, true footprint, city-limits margin (FindSpotWater.cs)
             if (spec.Standing)
                 r["standing"] = new Dictionary<string, object>
                 {
@@ -961,9 +995,16 @@ namespace ClaudeCityBridge
                 }
             }
             if (hit != null) return hit.Kind;
-            lt = ProbeLot(tp, ref r, 8f, steep, !spec.SkipWater);
+            // r = MakeRect(pos, fwd, spec.Local): the object origin and facing, for the footprint/water rules below
+            var lc0 = (spec.Local.min + spec.Local.max) * 0.5f;
+            var origin = r.C - r.U * lc0.x - r.V * lc0.y;
+            if (!InsideCityLimits(obs, spec, origin, r.V)) return K_LIMITS;
+            lt = ProbeLot(tp, ref r, 8f, steep, spec.Water == WaterRule.Dry);
             if (lt.Water) return K_WATER;
-            if (maxSteepPct < 100f && lt.SteepPct > maxSteepPct) return K_STEEP;
+            int wet = CheckWaterRules(tp, spec, origin, r.V); // FindSpotWater.cs: shoreline/floating/sub-object rules
+            if (wet >= 0) return wet;
+            // a shoreline object stands on the slope into the water: the game levels it, so no steepness filter
+            if (spec.Water != WaterRule.Shoreline && maxSteepPct < 100f && lt.SteepPct > maxSteepPct) return K_STEEP;
             return -1;
         }
 

@@ -697,5 +697,14 @@
   "reported_by": "builder-south",
   "status": "open",
   "added": "2026-11-20"
+ },
+ {
+  "rank": 66,
+  "domain": "Mobility",
+  "feature": "Reverse a one-way road",
+  "why_it_matters": "/upgrade cannot reverse a one-way road's direction, so one-way pairs at existing width (no demolition) cannot be built; troubleshooter needed it for Eastern Works z=3150.",
+  "reported_by": "troubleshooter",
+  "status": "open",
+  "added": "2026-11-20"
  }
 ]

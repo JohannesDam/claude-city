@@ -13,7 +13,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cc import get, post  # noqa: E402
+from cc import BUILD_LOCK, get, paused, post  # noqa: E402
 
 sys.stdout.reconfigure(encoding="utf-8")
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs")
@@ -51,15 +51,12 @@ def clear_ruins():
     if not ids:
         return 0
     n = 0
-    post("/speed", {"speed": 0}, timeout=20)
-    try:
+    with paused("autopilot ruins"):  # holds the build lock: waits for council workers
         for k in range(0, len(ids), 5):
             r = post("/bulldoze", {"ids": ids[k:k + 5]}, timeout=60)
             if r.get("applied"):
                 n += r.get("targets", 0)
             time.sleep(1)
-    finally:
-        post("/speed", {"speed": 3}, timeout=20)
     print(f"{time.strftime('%H:%M:%S')} cleared {n} ruins", flush=True)
     return n
 
@@ -108,9 +105,13 @@ def main():
             time.sleep(30)
             continue
         failures = 0
-        if not st.get("speed"):
-            post("/ui", {"action": "resume"}, timeout=20)
-            post("/speed", {"speed": a.speed}, timeout=20)
+        if not st.get("speed") and BUILD_LOCK.try_acquire("autopilot resume"):
+            # paused by a popup, not by a builder (builders hold the build lock while paused)
+            try:
+                post("/ui", {"action": "resume"}, timeout=20)
+                post("/speed", {"speed": a.speed}, timeout=20)
+            finally:
+                BUILD_LOCK.release()
         c = get("/city", timeout=30)
         if "error" in c:
             time.sleep(a.interval)

@@ -84,6 +84,16 @@ namespace ClaudeCityBridge
                 case "/coverage": return RequireGame() ?? Coverage(p);
                 case "/hotspots": return RequireGame() ?? Hotspots(p);
                 case "/icontypes": return RequireGame() ?? IconTypes();
+                case "/demand": return RequireGame() ?? Demand(p);
+                case "/finance": return RequireGame() ?? Finance(p);
+                case "/loan": return RequireGame() ?? LoanRequest(p);
+                case "/fees": return RequireGame() ?? Fees(p);
+                case "/taxes2": return RequireGame() ?? Taxes2(p);
+                case "/jobs": return RequireGame() ?? Jobs(p);
+                case "/stats": return RequireGame() ?? Stats(p);
+                case "/policies": return RequireGame() ?? PolicyList(p);
+                case "/policy": return RequireGame() ?? PolicySet(p);
+                case "/modifiers": return RequireGame() ?? Modifiers(p);
                 case "/findspot": return RequireGame() ?? FindSpot(p);
                 case "/freeland": return RequireGame() ?? FreeLand(p);
                 case "/unlockinfo": return RequireGame() ?? UnlockInfo(p.Q("name"));

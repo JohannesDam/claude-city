@@ -112,6 +112,25 @@ class _BuildLock:
         except OSError:
             pass
 
+    def try_acquire(self, who=None):
+        """Non-blocking: True (and held) when the lock was free, False when another process builds."""
+        import msvcrt
+        import os
+        if self.depth:
+            self.depth += 1
+            return True
+        os.makedirs(os.path.dirname(self.PATH), exist_ok=True)
+        fh = open(self.PATH, "a+")
+        try:
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError:
+            fh.close()
+            return False
+        self.fh = fh
+        self.depth = 1
+        return True
+
     def release(self):
         import msvcrt
         if not self.depth:

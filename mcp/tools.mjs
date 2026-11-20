@@ -99,7 +99,7 @@ export const TOOLS = [
     description: 'Zone cells. mode "rect": zone all zonable cells inside a rectangle (2 opposite corners) or quad (4 corners); mode "road": zone the cells along the given road segment ids (depth 1-6 cells, side both/left/right). zone = zone prefab name from cs2_prefabs category zones (e.g. "NA Residential Low", "NA Commercial Low", "Industrial Manufacturing") or "none" to dezone.',
     inputSchema: obj({
       zone: str('Zone prefab name or "none"'),
-      overwrite: { type: 'boolean', description: 'replace existing zoning (default true)' },
+      overwrite: { type: 'boolean', description: 'replace existing zoning, which demolishes the buildings on it (default false)' },
       dryRun: { type: 'boolean' },
       mode: str('"rect" or "road"'),
       points: { type: 'array', items: point, description: 'polygon corners for mode rect' },

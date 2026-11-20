@@ -274,6 +274,97 @@ def place_smart(prefab, x, z, radius=400, n=8, dry=False, **kw):
     return None, last
 
 
+def revenue_rates():
+    """Monthly tax income per household and per zoned building of each kind (from /finance and the building
+    counts). Used to price what a demolition costs. Industry and offices earn far more per building than homes."""
+    inc = get("/finance").get("income") or {}
+    zb = get("/buildings", kind="service", limit=1).get("zonedByZone") or {}
+    hh = sum(d.get("households") or 0 for d in get("/districts", detail="0").get("districts") or [])
+
+    def per(tax, word):
+        n = sum(v for k, v in zb.items() if word in k)
+        return (inc.get(tax) or 0) / n if n else 0.0
+    return {"household": (inc.get("TaxResidential") or 0) / hh if hh else 0.0,
+            "commercial": per("TaxCommercial", "Commercial"), "industrial": per("TaxIndustrial", "Industrial"),
+            "office": per("TaxOffice", "Office"),
+            "monthlyIncome": get("/finance").get("totalIncome") or 0}
+
+
+def demolition_cost(would, rates=None):
+    """Price a wouldDemolish list: households, companies by kind and tax revenue per month that goes with them.
+    Abandoned/condemned/destroyed buildings cost nothing."""
+    rates = rates or revenue_rates()
+    out = {"buildings": 0, "households": 0, "companies": 0, "revenuePerMonth": 0.0, "byKind": {}}
+    for w in would or []:
+        if w.get("state") in ("abandoned", "condemned", "destroyed"):
+            continue
+        z = (w.get("zone") or w.get("prefab") or "")
+        n = w.get("renters") or 0
+        if "Industrial" in z:
+            k, rev = "industrial", rates["industrial"]
+        elif "Office" in z:
+            k, rev = "office", rates["office"]
+        elif "Commercial" in z:
+            k, rev = "commercial", rates["commercial"]
+        elif "Residential" in z or "Mixed" in z:
+            k, rev = "residential", n * rates["household"]
+        else:
+            k, rev = "other", 0.0
+        out["buildings"] += 1
+        out["households" if k == "residential" else "companies"] += n
+        out["revenuePerMonth"] += rev
+        out["byKind"][k] = out["byKind"].get(k, 0) + 1
+    out["revenuePerMonth"] = round(out["revenuePerMonth"])
+    return out
+
+
+def make_room(prefab, x, z, radius=500, max_households=60, max_companies=4, max_revenue_share=0.001,
+              dry=False, log_as=None, **kw):
+    """Place a building that does not fit on free land, by making room - the owner allows it, as long as
+    revenue does not suffer. Order:
+      1. a clean spot (nothing demolished), like place_smart;
+      2. spots that replace zoned buildings, cheapest first (revenue lost per month, then households);
+         within limits: <= max_households, <= max_companies, revenue <= max_revenue_share of monthly income
+         (default 0.1%, about $40k/month); abandoned/condemned buildings are free.
+    Industry and offices pay ~$20k+/month per building in tax, homes ~$90 per household: clearing homes is
+    cheap when residential demand is high (people move elsewhere), clearing workplaces is not.
+    Returns {"mode": "clean"|"room"|"none", "result", "cost", "options"}; dry=True only reports.
+    When nothing fits within the limits: buy an adjacent tile (GET /tiles, cheap) or ask the conductor."""
+    r, c = place_smart(prefab, x, z, radius=radius, dry=dry, **kw)
+    if r is not None and r.get("errors") == 0:
+        return {"mode": "clean", "result": r, "candidate": c}
+    rates = revenue_rates()
+    limit = max_revenue_share * (rates.get("monthlyIncome") or 0)
+    options = []
+    for cand in find_spot(prefab, x, z, radius=radius, n=12, growables="free", **kw):
+        b = dict(cand["building"])
+        b.pop("prefab", None)
+        d = post("/building", {"prefab": prefab, **b, "dryRun": True, "allowDemolish": True})
+        if d.get("errors") != 0:
+            continue
+        cost = demolition_cost(d.get("wouldDemolish"), rates)
+        ok = cost["households"] <= max_households and cost["companies"] <= max_companies and cost["revenuePerMonth"] <= limit
+        options.append({"building": b, "cost": cost, "withinLimits": ok})
+    options.sort(key=lambda o: (not o["withinLimits"], o["cost"]["revenuePerMonth"], o["cost"]["households"]))
+    best = next((o for o in options if o["withinLimits"]), None)
+    if best is None:
+        return {"mode": "none", "options": options[:5], "limitRevenue": round(limit),
+                "hint": "no spot within limits: buy an adjacent tile (GET /tiles) or report to the conductor"}
+    if dry:
+        return {"mode": "room", "result": None, "cost": best["cost"], "candidate": best["building"], "options": options[:5]}
+    res = building(prefab, **best["building"], allowDemolish=True)
+    try:
+        import os
+        import time as _t
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", "council", "demolitions.jsonl")
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"at": _t.strftime("%Y-%m-%d %H:%M:%S"), "by": log_as or BUILD_LOCK.who, "prefab": prefab,
+                                "placedId": res.get("placedId"), "cost": best["cost"], "pos": [best["building"].get("x"), best["building"].get("z")]}) + "\n")
+    except OSError:
+        pass
+    return {"mode": "room", "result": res, "cost": best["cost"], "candidate": best["building"]}
+
+
 def place_in_area(prefab, x, z, radius=300, filt="Small", ts=(0.5, 0.25, 0.75), max_tries=40, dry=False):
     """Find a valid spot for a building near (x, z) and build it there: /findspot first, then the old
     brute-force scan along road segments. Returns (result, tried); result is None when nothing fitted."""

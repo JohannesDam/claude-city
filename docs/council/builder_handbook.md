@@ -40,7 +40,8 @@ the start of your shift; it replaces the per-round worker prompt of the old coun
 - Boundary roads and arterials belong to the item that names them; connect to existing stubs only.
 - Protected zones (parks, landmarks, leisure quarter): never build or bulldoze there unless the item says so.
 - Never bulldoze another district's buildings. Urban renewal items may demolish inside their approved phase
-  box (pass `allowDemolish=True` only there).
+  box (pass `allowDemolish=True` only there). To fit a big building in your own district, use `make_room`
+  (see "Big buildings" below), which prices and logs what it removes.
 
 ## Quality rules (the owner's bar: "an aesthetic pearl where people and city live in synergy")
 
@@ -72,6 +73,26 @@ the start of your shift; it replaces the per-round worker prompt of the old coun
   silently replace homes. Until the API says `wouldDemolish` for extensions: dry run, then
   `GET /buildings?kind=all&x=&z=&radius=80` around the slot, and skip slots that would hit zoned buildings.
 
+## Big buildings: find land, buy land, or make room
+
+The owner noticed builders giving up on big buildings that "don't fit". Don't give up, and don't settle for a
+bad site far away from where the building is needed. In this order:
+
+1. A clean site near where it is needed: `place_smart(prefab, x, z, radius=500..800)`; `/freeland` to see
+   empty land.
+2. Buy land: an adjacent tile costs $0.05-0.5M (`GET /tiles` candidates with price and upkeepIncrease), when
+   the building still serves its purpose there (coverage radius, access).
+3. Make room: `make_room(prefab, x, z, radius=500, dry=True)` lists sites that replace zoned buildings,
+   priced by what they cost: households, companies and tax revenue per month (industry and offices pay
+   ~$20-25k per building per month, homes ~$90 per household). Without `dry` it builds the cheapest site
+   within the limits (default <= 60 households, <= 4 companies, <= 0.1% of monthly income) and logs it to
+   `logs/council/demolitions.jsonl`.
+   - Clearing homes is acceptable when residential demand is high (people move into new homes elsewhere);
+     prefer abandoned/condemned buildings and low-level homes. Avoid workplaces; never service buildings,
+     signature buildings or protected parks.
+   - Bigger clearances (above the limits) need the conductor: describe the options in your report.
+   - Pair a clearance with new homes or zoning elsewhere in your district when you can.
+
 ## Money
 
 - The worklist item carries a budget. Stay within it (+10%). Bigger needs: `defer` with a note; the
@@ -90,7 +111,7 @@ Python client: `C:\soft\cityskyline\tools\cc.py`.
 
 ```python
 import sys; sys.path.insert(0, r"C:\soft\cityskyline\tools")
-from cc import get, post, paused, road, zone, building, upgrade, place_smart, find_spot, fit, short, access_check
+from cc import get, post, paused, road, zone, building, upgrade, place_smart, find_spot, fit, short, access_check, make_room, demolition_cost
 ```
 
 CLI: `cd C:/soft/cityskyline/tools && python -I cc.py GET "/findspot?prefab=Hospital01&x=-1600&z=-560&radius=600"`.

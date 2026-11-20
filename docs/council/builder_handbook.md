@@ -75,7 +75,15 @@ the start of your shift; it replaces the per-round worker prompt of the old coun
   and `/upgrade` return `edgeIdsAfter` (current ids in request order) and `edgeMap` - use those for the next call.
 - `/extension` reports `wouldDemolish` and refuses (`blocked`) like `/building`; `side:"auto"` prefers slots
   that remove nothing. `/building` results include the lot `corners`, and dry runs report `roadConnected`.
-  `/findspot` tries setbacks 0.5/2/3.5 m.
+  `/findspot` tries setbacks 0.5/2/3.5 m and handles wind turbines (tower on the ground, rotor only against tall
+  things). A `/building` request returns its `seed`: the same request previews and builds the same variant, so a
+  clean dry run means a clean build; unexplained errors are listed in `problemDetails`.
+- Power lines and pipes: `post("/road", {"prefab":"High-voltage Line", "points":[...], "connectTo":"<building id>"})`
+  attaches the nearer end to the building's connection point (`connections[].preview.attached` in the dry run);
+  `GET /services?kind=electricity` lists each plant's/battery's connection points. A line only carries power if it
+  reaches the grid (the outside high-voltage line ends at (-2022,1516)) or a transformer.
+- `/roundabout` refuses demolition unless `allowDemolish=True` (cc sends False); `/zone` may report
+  occupiedCellsRezoned > 0 with overwrite=False for unzoned cells under parks - harmless.
 
 ## Big buildings: find land, buy land, or make room
 

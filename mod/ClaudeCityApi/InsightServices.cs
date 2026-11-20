@@ -349,6 +349,12 @@ namespace ClaudeCityBridge
                 g["highVoltagePoint"] = hvPoint || hv;
                 g["highVoltageConnected"] = hv ? (object)false : hvPoint ? (object)true : null; // null = no HV connection point found
                 if (lvPoint || lv) g["lowVoltageConnected"] = !lv;
+                if (hv) g["fix"] = "POST /road {prefab:'High-voltage Line', points:[[x,z] near the building, [x,z] of the grid/transformer], connectTo:'" + Id(e) + "'} attaches the line to the connection point (NetConnect.cs)";
+            }
+            if (hvPoint || lvPoint)
+            {
+                var cps = ConnectionPointsJson(e);
+                if (cps.Count > 0) g["connectionPoints"] = cps;
             }
             if (em.HasComponent<ElectricityBuildingConnection>(e))
             {

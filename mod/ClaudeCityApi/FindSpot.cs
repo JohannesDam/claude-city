@@ -51,6 +51,9 @@ namespace ClaudeCityBridge
             public int Kind;
             public bool Frontable;         // a road a building can face/connect to
             public Entity Src;
+            // height range above the terrain at the obstacle (m); infinite = 2D obstacle (areas, city limits).
+            // The game validates objects in 3D, so a standing object's rotor only meets what reaches up to it.
+            public float Y0 = float.MinValue, Y1 = float.MaxValue;
         }
 
         /// <summary>Oriented rectangle: centre, right axis U, forward axis V (towards the road), half extents.</summary>
@@ -114,6 +117,46 @@ namespace ClaudeCityBridge
             return math.min(h, mx) - math.max(-h, mn) > eps;
         }
 
+        /// <summary>Circle against a convex polygon or circle obstacle (penetration deeper than eps).</summary>
+        static bool CircleOverlaps(float2 c, float rad, Obst o, float eps)
+        {
+            if (o.Max.x < c.x - rad || o.Min.x > c.x + rad || o.Max.y < c.y - rad || o.Min.y > c.y + rad) return false;
+            if (o.Poly == null) return math.distance(c, o.C) < rad + o.R - eps;
+            var p = o.Poly;
+            int n = p.Length;
+            bool inside = true;
+            float best = float.MaxValue;
+            float sign = 0;
+            for (int i = 0; i < n; i++)
+            {
+                var a = p[i]; var b = p[i + 1 == n ? 0 : i + 1];
+                var e = b - a;
+                float cr = e.x * (c.y - a.y) - e.y * (c.x - a.x);
+                if (cr != 0) { if (sign == 0) sign = math.sign(cr); else if (math.sign(cr) != sign) inside = false; }
+                float l2 = math.lengthsq(e);
+                float t = l2 > 1e-6f ? math.clamp(math.dot(c - a, e) / l2, 0f, 1f) : 0f;
+                best = math.min(best, math.distance(c, a + e * t));
+            }
+            return inside || best < rad - eps;
+        }
+
+        /// <summary>
+        /// Standing objects (ObjectGeometryData GeometryFlags.Standing, e.g. WindTurbine01): the game validates the
+        /// legs (m_LegSize boxes at +-m_LegOffset, ObjectUtils.GetStandingLegOffset) from the base up to m_LegSize.y and
+        /// the rest of the geometry (m_Bounds / m_Size, e.g. a rotor) only above m_LegSize.y (ValidationHelpers
+        /// CheckOverlap3D). For buildings BuildingInitializeSystem.InitializeLotSize makes the legs' hull the lot minus
+        /// 0.2 m per side while m_Bounds keeps the full mesh, so the full bounds must not be used on the ground.
+        /// </summary>
+        static bool StandingParts(ObjectGeometryData g, out Bounds2 legs, out float legTop)
+        {
+            legs = default(Bounds2); legTop = 0;
+            if ((g.m_Flags & Game.Objects.GeometryFlags.Standing) == 0 || g.m_LegSize.y <= 0) return false;
+            var half = g.m_LegSize.xz * 0.5f + math.abs(g.m_LegOffset);
+            legs = new Bounds2(-half, half);
+            legTop = g.m_LegSize.y;
+            return true;
+        }
+
         /// <summary>Obstacles of one search area, bucketed in a uniform grid for rectangle queries.</summary>
         sealed partial class ObstSet
         {
@@ -135,18 +178,18 @@ namespace ClaudeCityBridge
 
             public bool InArea(float2 mn, float2 mx) => !(mx.x < AreaMin.x || mn.x > AreaMax.x || mx.y < AreaMin.y || mn.y > AreaMax.y);
 
-            public void AddPoly(float2[] pts, int kind, Entity src, bool frontable)
+            public void AddPoly(float2[] pts, int kind, Entity src, bool frontable, float y0 = float.MinValue, float y1 = float.MaxValue)
             {
                 var mn = pts[0]; var mx = pts[0];
                 for (int i = 1; i < pts.Length; i++) { mn = math.min(mn, pts[i]); mx = math.max(mx, pts[i]); }
                 if (!InArea(mn, mx)) return;
-                Insert(new Obst { Poly = pts, Min = mn, Max = mx, Kind = kind, Src = src, Frontable = frontable });
+                Insert(new Obst { Poly = pts, Min = mn, Max = mx, Kind = kind, Src = src, Frontable = frontable, Y0 = y0, Y1 = y1 });
             }
 
-            public void AddCircle(float2 c, float r, int kind, Entity src)
+            public void AddCircle(float2 c, float r, int kind, Entity src, float y0 = float.MinValue, float y1 = float.MaxValue)
             {
                 if (!InArea(c - r, c + r)) return;
-                Insert(new Obst { C = c, R = r, Min = c - r, Max = c + r, Kind = kind, Src = src });
+                Insert(new Obst { C = c, R = r, Min = c - r, Max = c + r, Kind = kind, Src = src, Y0 = y0, Y1 = y1 });
             }
 
             void Insert(Obst o)
@@ -170,8 +213,8 @@ namespace ClaudeCityBridge
                 r1 = math.clamp((int)math.floor((mx.y - AreaMin.y) / cell), 0, rows - 1);
             }
 
-            /// <summary>First obstacle the rectangle overlaps (null = free).</summary>
-            public Obst FirstHit(ref LotRect r, float eps)
+            /// <summary>First obstacle the rectangle overlaps (null = free); only obstacles whose height range meets [y0, y1].</summary>
+            public Obst FirstHit(ref LotRect r, float eps, float y0 = float.MinValue, float y1 = float.MaxValue)
             {
                 if (stamp.Length < All.Count) stamp = new int[All.Count];
                 cur++;
@@ -187,7 +230,32 @@ namespace ClaudeCityBridge
                             if (stamp[idx] == cur) continue;
                             stamp[idx] = cur;
                             var o = All[idx];
+                            if (o.Y1 <= y0 || o.Y0 >= y1) continue;
                             if (Overlaps(ref r, o, eps)) return o;
+                        }
+                    }
+                return null;
+            }
+
+            /// <summary>First obstacle a circle overlaps within the height range [y0, y1] (round upper parts, e.g. a rotor).</summary>
+            public Obst FirstHitCircle(float2 c, float rad, float eps, float y0, float y1)
+            {
+                if (stamp.Length < All.Count) stamp = new int[All.Count];
+                cur++;
+                Range(c - rad, c + rad, out int c0, out int c1, out int r0, out int r1);
+                for (int y = r0; y <= r1; y++)
+                    for (int x = c0; x <= c1; x++)
+                    {
+                        var l = grid[y * cols + x];
+                        if (l == null) continue;
+                        for (int i = 0; i < l.Count; i++)
+                        {
+                            int idx = l[i];
+                            if (stamp[idx] == cur) continue;
+                            stamp[idx] = cur;
+                            var o = All[idx];
+                            if (o.Y1 <= y0 || o.Y0 >= y1) continue;
+                            if (CircleOverlaps(c, rad, o, eps)) return o;
                         }
                     }
                 return null;
@@ -210,8 +278,9 @@ namespace ClaudeCityBridge
         /// lie entirely under the terrain (pipes, tunnels) or entirely higher than the new object
         /// (bridge decks) are left out, like the game's 3D object-vs-net test.
         /// </summary>
-        static void AddSegment(ObstSet set, Game.Net.Segment s, int kind, Entity src, bool frontable, TerrainProbe tp, float objHeight)
+        static void AddSegment(ObstSet set, Game.Net.Segment s, int kind, Entity src, bool frontable, TerrainProbe tp, float objHeight, Bounds1? heightRange = null)
         {
+            bool hasRange = heightRange.HasValue;
             if (math.all(s.m_Length <= 0.1f)) return; // empty piece; the game skips these too
             var L = s.m_Left; var R = s.m_Right;
             float len = math.max(ApproxLen(L), ApproxLen(R));
@@ -225,7 +294,18 @@ namespace ClaudeCityBridge
                 var nl = MathUtils.Position(L, t); var nr = MathUtils.Position(R, t);
                 int wl = Vertical(tp, nl, objHeight), wr = Vertical(tp, nr, objHeight);
                 bool skip = (vl == -1 && vr == -1 && wl == -1 && wr == -1) || (vl == 1 && vr == 1 && wl == 1 && wr == 1);
-                if (!skip) set.AddPoly(new[] { pl.xz, nl.xz, nr.xz, pr.xz }, kind, src, frontable);
+                if (!skip)
+                {
+                    float y0 = float.MinValue, y1 = float.MaxValue;
+                    if (hasRange)
+                    {
+                        // the composition's height range on top of the deck height above the terrain
+                        float h0 = pl.y - tp.Height(pl.xz), h1 = nl.y - tp.Height(nl.xz), h2 = nr.y - tp.Height(nr.xz), h3 = pr.y - tp.Height(pr.xz);
+                        y0 = math.min(math.min(h0, h1), math.min(h2, h3)) + heightRange.Value.min;
+                        y1 = math.max(math.max(h0, h1), math.max(h2, h3)) + heightRange.Value.max;
+                    }
+                    set.AddPoly(new[] { pl.xz, nl.xz, nr.xz, pr.xz }, kind, src, frontable, y0, y1);
+                }
                 pl = nl; pr = nr; vl = wl; vr = wr;
             }
         }
@@ -282,7 +362,7 @@ namespace ClaudeCityBridge
             return true;
         }
 
-        void AddObjects(ObstSet set, EntityQuery q, CollisionMask bmask, Dictionary<Entity, ObjectGeometryData?> geoCache)
+        void AddObjects(ObstSet set, EntityQuery q, CollisionMask bmask, Dictionary<Entity, ObjectGeometryData?> geoCache, TerrainProbe tp)
         {
             const float objReach = 400f; // no object base reaches further than this from its pivot
             var min = set.AreaMin; var max = set.AreaMax;
@@ -313,10 +393,18 @@ namespace ClaudeCityBridge
                     int kind = em.HasComponent<Building>(e) ? K_BUILDING : K_OBJECT;
                     var rot = trs[i].m_Rotation;
                     var b = geo.m_Bounds;
+                    float baseY = trs[i].m_Position.y - tp.Height(pos); // object origin above the terrain
+                    float y0 = baseY + b.min.y, y1 = baseY + b.max.y;
+                    if (StandingParts(geo, out var legs, out float legTop))
+                    {
+                        // legs up to legTop, the rest (e.g. a rotor) above it: what the game tests in 3D
+                        set.AddPoly(BaseCorners(pos, rot, new Bounds3(new float3(legs.min.x, 0, legs.min.y), new float3(legs.max.x, 0, legs.max.y))), kind, e, false, y0, baseY + legTop);
+                        y0 = baseY + legTop;
+                    }
                     if ((geo.m_Flags & Game.Objects.GeometryFlags.Circular) != 0)
                     {
                         var cc = pos + math.mul(rot, new float3((b.min.x + b.max.x) * 0.5f, 0, (b.min.z + b.max.z) * 0.5f)).xz;
-                        set.AddCircle(cc, math.max(geo.m_Size.x, geo.m_Size.z) * 0.5f, kind, e);
+                        set.AddCircle(cc, math.max(geo.m_Size.x, geo.m_Size.z) * 0.5f, kind, e, y0, y1);
                     }
                     else
                     {
@@ -327,7 +415,7 @@ namespace ClaudeCityBridge
                             pos + math.mul(rot, new float3(b.min.x, 0, b.max.z)).xz,
                             pos + math.mul(rot, new float3(b.max.x, 0, b.max.z)).xz,
                             pos + math.mul(rot, new float3(b.max.x, 0, b.min.z)).xz,
-                        }, kind, e, false);
+                        }, kind, e, false, y0, y1);
                     }
                 }
             }
@@ -348,9 +436,9 @@ namespace ClaudeCityBridge
                 ComponentType.Exclude<Game.Vehicles.Vehicle>(), ComponentType.Exclude<Game.Creatures.Creature>());
             var subQ = em.CreateEntityQuery(ComponentType.ReadOnly<Building>(), ComponentType.ReadOnly<Owner>(), ComponentType.ReadOnly<ObjTransform>(), ComponentType.ReadOnly<PrefabRef>(),
                 ComponentType.Exclude<Deleted>(), ComponentType.Exclude<Temp>(), ComponentType.Exclude<Hidden>());
-            AddObjects(set, topQ, bmask, geoCache);
-            AddObjects(set, subQ, bmask, geoCache);
-            AddGrowableObstacles(set, bmask, geoCache, growablesFree); // growables (Overridable, skipped above): obstacles unless growables=free
+            AddObjects(set, topQ, bmask, geoCache, tp);
+            AddObjects(set, subQ, bmask, geoCache, tp);
+            AddGrowableObstacles(set, bmask, geoCache, growablesFree, tp); // growables (Overridable, skipped above): obstacles unless growables=free
 
             // --- nets: edge halves and the node pieces belonging to each edge
             var nq = em.CreateEntityQuery(ComponentType.ReadOnly<NetEdge>(), ComponentType.ReadOnly<Curve>(), ComponentType.ReadOnly<PrefabRef>(),
@@ -372,23 +460,24 @@ namespace ClaudeCityBridge
                     float tmin = math.min(math.min(tp.Height(cv.a.xz), tp.Height(cv.d.xz)), tp.Height(MathUtils.Position(cv, 0.5f).xz));
                     float tmax = math.max(math.max(tp.Height(cv.a.xz), tp.Height(cv.d.xz)), tp.Height(MathUtils.Position(cv, 0.5f).xz));
                     Func<Bounds1, bool> inReach = y => y.max >= tmin - 0.5f && y.min <= tmax + objHeight;
+                    Func<Entity, Bounds1?> hr = ce => ce != Entity.Null && em.HasComponent<NetCompositionData>(ce) ? em.GetComponentData<NetCompositionData>(ce).m_HeightRange : (Bounds1?)null;
                     if (em.HasComponent<EdgeGeometry>(e))
                     {
                         var g = em.GetComponentData<EdgeGeometry>(e);
                         if ((NetMask(comp.m_Edge, fallback) & bmask) != 0 && inReach(g.m_Bounds.y))
                         {
-                            AddSegment(set, g.m_Start, kind, e, front, tp, objHeight);
-                            AddSegment(set, g.m_End, kind, e, front, tp, objHeight);
+                            AddSegment(set, g.m_Start, kind, e, front, tp, objHeight, hr(comp.m_Edge));
+                            AddSegment(set, g.m_End, kind, e, front, tp, objHeight, hr(comp.m_Edge));
                         }
                         if (em.HasComponent<StartNodeGeometry>(e) && (NetMask(comp.m_StartNode, fallback) & bmask) != 0)
                         {
                             var ng = em.GetComponentData<StartNodeGeometry>(e).m_Geometry;
-                            if (inReach(ng.m_Bounds.y)) { AddSegment(set, ng.m_Left, kind, e, front, tp, objHeight); AddSegment(set, ng.m_Right, kind, e, front, tp, objHeight); }
+                            if (inReach(ng.m_Bounds.y)) { AddSegment(set, ng.m_Left, kind, e, front, tp, objHeight, hr(comp.m_StartNode)); AddSegment(set, ng.m_Right, kind, e, front, tp, objHeight, hr(comp.m_StartNode)); }
                         }
                         if (em.HasComponent<EndNodeGeometry>(e) && (NetMask(comp.m_EndNode, fallback) & bmask) != 0)
                         {
                             var ng = em.GetComponentData<EndNodeGeometry>(e).m_Geometry;
-                            if (inReach(ng.m_Bounds.y)) { AddSegment(set, ng.m_Left, kind, e, front, tp, objHeight); AddSegment(set, ng.m_Right, kind, e, front, tp, objHeight); }
+                            if (inReach(ng.m_Bounds.y)) { AddSegment(set, ng.m_Left, kind, e, front, tp, objHeight, hr(comp.m_EndNode)); AddSegment(set, ng.m_Right, kind, e, front, tp, objHeight, hr(comp.m_EndNode)); }
                         }
                     }
                     else if (comp.m_Edge != Entity.Null && em.HasComponent<NetCompositionData>(comp.m_Edge) && (NetMask(comp.m_Edge, 0) & bmask) != 0)
@@ -439,11 +528,12 @@ namespace ClaudeCityBridge
                     else continue;
                     var nodes = em.GetBuffer<AreaNode>(a, true);
                     var tris = em.GetBuffer<AreaTriangle>(a, true);
+                    float ay1 = kind == K_AREA ? math.max(2f, ag.m_MaxHeight) : float.MaxValue; // a standing object's upper part passes over ground areas
                     for (int i = 0; i < tris.Length; i++)
                     {
                         var ix = tris[i].m_Indices;
                         if (ix.x >= nodes.Length || ix.y >= nodes.Length || ix.z >= nodes.Length) continue;
-                        set.AddPoly(new[] { nodes[ix.x].m_Position.xz, nodes[ix.y].m_Position.xz, nodes[ix.z].m_Position.xz }, kind, a, false);
+                        set.AddPoly(new[] { nodes[ix.x].m_Position.xz, nodes[ix.y].m_Position.xz, nodes[ix.z].m_Position.xz }, kind, a, false, float.MinValue, ay1);
                     }
                 }
             return set;
@@ -507,6 +597,10 @@ namespace ClaudeCityBridge
             public bool SkipWater;
             public float Height = 20f; // building height for the 3D net check (prefab bounds when known)
             public float Depth => Lot.y * 8f; // what PlaceBuilding uses to offset the centre from the road
+            // standing prefab (e.g. WindTurbine01): Local = the legs' hull (the lot), tested up to LegTop; Upper (the
+            // full mesh bounds, a circle when Circular) is tested only against obstacles reaching above LegTop
+            public bool Standing; public float LegTop; public Bounds2 Upper; public bool UpperCircle; public float UpperR;
+            public float LowTop => Standing ? LegTop : float.MaxValue;
         }
 
         object ReadLotSpec(Pending p, out LotSpec spec)
@@ -527,6 +621,12 @@ namespace ClaudeCityBridge
                     var geo = em.GetComponentData<ObjectGeometryData>(prefab);
                     spec.Local = new Bounds2(geo.m_Bounds.min.xz, geo.m_Bounds.max.xz);
                     spec.Height = math.max(5f, geo.m_Bounds.max.y);
+                    if (StandingParts(geo, out var legs, out float legTop))
+                    {
+                        spec.Standing = true; spec.LegTop = legTop; spec.Upper = spec.Local; spec.Local = legs;
+                        spec.UpperCircle = (geo.m_Flags & Game.Objects.GeometryFlags.Circular) != 0;
+                        spec.UpperR = math.max(geo.m_Size.x, geo.m_Size.z) * 0.5f;
+                    }
                     spec.Mask = Game.Objects.ObjectUtils.GetCollisionMask(geo, true);
                     if (spec.Mask == 0) spec.Mask = (CollisionMask)3;
                 }
@@ -611,6 +711,7 @@ namespace ClaudeCityBridge
 
             float depth = spec.Depth;
             float lotSpan = math.length(spec.Local.max - spec.Local.min);
+            if (spec.Standing) lotSpan = math.max(lotSpan, math.length(spec.Upper.max - spec.Upper.min));
             float reach = radius + depth + lotSpan + 48f;
             var tp = Probe();
             var obs = CollectObstacles(c - reach, c + reach, spec.Mask, tp, spec.Height, GrowablesFree(p));
@@ -755,7 +856,7 @@ namespace ClaudeCityBridge
             foreach (var s in valid)
             {
                 var roomy = MakeRect(s.Pos, s.Fwd, spec.Local, 2f, 2f, 0f);
-                s.Roomy = obs.FirstHit(ref roomy, OverlapEps) == null;
+                s.Roomy = obs.FirstHit(ref roomy, OverlapEps, float.MinValue, spec.LowTop) == null;
                 s.Dist = math.distance(s.Rect.C, c);
                 s.Score = 100f - 40f * math.min(1f, s.Dist / distNorm) - math.min(20f, s.HRange)
                     - 10f * (1f - math.min(s.Slack, 16f) / 16f) - (s.Roomy ? 0f : 8f) - (s.Mode == "deadEnd" ? 10f : 0f)
@@ -826,6 +927,12 @@ namespace ClaudeCityBridge
                 { "usage", "POST /building with candidates[i].building (edge/t/side/gap reproduce exactly this position); buildingXZ is the same spot as x/z/angle. Higher score = better (near, flat, room to slide 'slack' m, 'roomy' = 2 m spare beside/behind). Each position tries the setbacks (m from the road edge to the lot front; setbacks=0.5,2,3.5 or gap=) smallest first; 'setback' is the one that fitted." },
             };
             if (spec.SkipWater) r["note"] = "prefab is a shoreline/floating/underwater object: the no-water rule was not applied";
+            if (spec.Standing)
+                r["standing"] = new Dictionary<string, object>
+                {
+                    { "legTop", Math.Round(spec.LegTop, 1) }, { "upper", spec.UpperCircle ? "circle r=" + Math.Round(spec.UpperR, 1) + " m" : "bounds " + Math.Round(spec.Upper.max.x - spec.Upper.min.x) + " x " + Math.Round(spec.Upper.max.y - spec.Upper.min.y) + " m" },
+                    { "note", "standing object: the lot (legs) is tested on the ground, the upper part only against what reaches above legTop m (other rotors, tall buildings, high nets) and the city limits, like the game's 3D validation" },
+                };
             if (cands.Count == 0)
                 r["hint"] = "nothing fits along roads within radius: see 'rejected' for what blocks it; try a larger radius, side=, deadEnds=1, maxSteepPct=100, or GET /freeland to find empty land and build an access road into it";
             NoteGrowables(r, obs);
@@ -836,7 +943,23 @@ namespace ClaudeCityBridge
         static int EvalLot(ObstSet obs, TerrainProbe tp, ref LotRect r, LotSpec spec, float steep, float maxSteepPct, out LotTerrain lt)
         {
             lt = default;
-            var hit = obs.FirstHit(ref r, OverlapEps);
+            var hit = obs.FirstHit(ref r, OverlapEps, float.MinValue, spec.LowTop);
+            if (hit == null && spec.Standing)
+            {
+                // r = MakeRect(pos, fwd, spec.Local): recover the object origin, then place the upper part
+                var lc = (spec.Local.min + spec.Local.max) * 0.5f;
+                var pos = r.C - r.U * lc.x - r.V * lc.y;
+                if (spec.UpperCircle)
+                {
+                    var uc = (spec.Upper.min + spec.Upper.max) * 0.5f;
+                    hit = obs.FirstHitCircle(pos + r.U * uc.x + r.V * uc.y, spec.UpperR, OverlapEps, spec.LegTop, float.MaxValue);
+                }
+                else
+                {
+                    var ur = MakeRect(pos, r.V, spec.Upper);
+                    hit = obs.FirstHit(ref ur, OverlapEps, spec.LegTop, float.MaxValue);
+                }
+            }
             if (hit != null) return hit.Kind;
             lt = ProbeLot(tp, ref r, 8f, steep, !spec.SkipWater);
             if (lt.Water) return K_WATER;

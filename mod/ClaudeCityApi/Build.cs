@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Colossal.Mathematics;
 using Game.Buildings;
 using Game.Common;
@@ -34,10 +35,23 @@ namespace ClaudeCityBridge
             return em.HasComponent<Road>(edge) == wantRoad;
         }
 
-        /// <summary>Find what a new net point should connect to: an existing node, a split point on an edge, or nothing.</summary>
-        CoursePos SnapPoint(float3 p, float snap, bool wantRoad, List<object> report)
+        /// <summary>Non-road nets (power lines, pipes) only snap to nets they can connect to (NetUtils.CanConnect), like the net tool.</summary>
+        bool CanJoin(Entity edge, Entity prefab)
+        {
+            if (prefab == Entity.Null || !em.HasComponent<NetData>(prefab) || !em.HasComponent<PrefabRef>(edge)) return true;
+            var ep = em.GetComponentData<PrefabRef>(edge).m_Prefab;
+            return !em.HasComponent<NetData>(ep) || NetUtils.CanConnect(em.GetComponentData<NetData>(ep), em.GetComponentData<NetData>(prefab));
+        }
+
+        /// <summary>
+        /// Find what a new net point should connect to: an existing node, a split point on an edge, or nothing.
+        /// With a non-road prefab, a building connection point (e.g. a power plant's high-voltage node, NetConnect.cs)
+        /// within the snap distance wins over ordinary nodes, like the vanilla net tool's snapping.
+        /// </summary>
+        CoursePos SnapPoint(float3 p, float snap, bool wantRoad, List<object> report, Entity prefab = default(Entity))
         {
             var cp = new CoursePos { m_Position = p, m_Elevation = 0, m_ParentMesh = -1 };
+            bool checkJoin = !wantRoad && prefab != Entity.Null;
             Entity bestNode = Entity.Null; float bestNodeD = snap;
             using (var nodes = NodeQuery().ToEntityArray(Allocator.Temp))
             {
@@ -48,9 +62,21 @@ namespace ClaudeCityBridge
                     if (d >= bestNodeD) continue;
                     var ce = em.GetBuffer<ConnectedEdge>(n, true);
                     bool ok = false;
-                    for (int i = 0; i < ce.Length; i++) if (SameNetKind(ce[i].m_Edge, wantRoad) && !em.HasComponent<Owner>(ce[i].m_Edge)) { ok = true; break; }
+                    for (int i = 0; i < ce.Length; i++)
+                        if (SameNetKind(ce[i].m_Edge, wantRoad) && !em.HasComponent<Owner>(ce[i].m_Edge) && (!checkJoin || CanJoin(ce[i].m_Edge, prefab))) { ok = true; break; }
                     if (!ok) continue;
                     bestNode = n; bestNodeD = d;
+                }
+            }
+            if (checkJoin)
+            {
+                var conn = NearestConnectionNode(p, snap, prefab, out float cd);
+                if (conn != Entity.Null && cd <= bestNodeD)
+                {
+                    cp = NodeCoursePos(conn);
+                    var b = OwnerBuilding(conn);
+                    report.Add(new Dictionary<string, object> { { "snappedTo", "connectionPoint" }, { "id", Id(conn) }, { "building", b == Entity.Null ? null : Id(b) }, { "pos", F2(cp.m_Position) } });
+                    return cp;
                 }
             }
             if (bestNode != Entity.Null)
@@ -66,9 +92,10 @@ namespace ClaudeCityBridge
                 foreach (var e in edges)
                 {
                     if (!SameNetKind(e, wantRoad)) continue;
+                    if (checkJoin && !CanJoin(e, prefab)) continue;
                     var cv = em.GetComponentData<Curve>(e).m_Bezier;
-                    var prefab = em.GetComponentData<PrefabRef>(e).m_Prefab;
-                    float hw = em.HasComponent<NetGeometryData>(prefab) ? em.GetComponentData<NetGeometryData>(prefab).m_DefaultWidth * 0.5f : 0;
+                    var edgePrefab = em.GetComponentData<PrefabRef>(e).m_Prefab;
+                    float hw = em.HasComponent<NetGeometryData>(edgePrefab) ? em.GetComponentData<NetGeometryData>(edgePrefab).m_DefaultWidth * 0.5f : 0;
                     float t;
                     var d = MathUtils.Distance(cv.xz, p.xz, out t);
                     if (d > snap + hw || d >= bestEdgeD) continue;
@@ -109,6 +136,15 @@ namespace ClaudeCityBridge
             float maxSeg = a.F("maxSegment", 96f);
             var raw = new List<float3>();
             foreach (var o in pts) raw.Add(P(o));
+            // connectTo: attach an endpoint to a building's connection point (NetConnect.cs)
+            var conns = new List<NetConnection>();
+            var connErr = ParseConnectTo(a, prefab, raw[0].xz, raw[raw.Count - 1].xz, conns);
+            if (connErr != null) return connErr;
+            foreach (var c in conns)
+            {
+                int k = c.Index == 0 ? 0 : raw.Count - 1;
+                raw[k] = em.GetComponentData<NetNode>(c.Node).m_Position;
+            }
             var dense = new List<float3> { raw[0] };
             for (int i = 1; i < raw.Count; i++)
             {
@@ -118,20 +154,36 @@ namespace ClaudeCityBridge
             }
             var job = new TrackedNetJob { Prefab = prefab, DryRun = a.B("dryRun"), Api = this };
             var report = new List<object>();
+            var fixedAt = new Dictionary<int, Entity>(); // course index -> connection node (connectTo)
             for (int i = 0; i < dense.Count; i++)
             {
                 bool end = i == 0 || i == dense.Count - 1;
+                var conn = conns.FirstOrDefault(c => (c.Index == 0 && i == 0) || (c.Index == -1 && i == dense.Count - 1));
+                if (conn != null)
+                {
+                    fixedAt[i] = conn.Node;
+                    job.Points.Add(NodeCoursePos(conn.Node));
+                    report.Add(new Dictionary<string, object> { { "snappedTo", "connectionPoint" }, { "id", Id(conn.Node) }, { "building", conn.Building == Entity.Null ? null : Id(conn.Building) }, { "pos", F2(job.Points[i].m_Position) } });
+                    continue;
+                }
                 var rawPt = raw.Exists(r => math.distance(r.xz, dense[i].xz) < 0.01f);
-                if (end || rawPt) job.Points.Add(SnapPoint(dense[i], snap, wantRoad, report));
+                if (end || rawPt) job.Points.Add(SnapPoint(dense[i], snap, wantRoad, report, prefab));
                 else { var p = dense[i]; p.y = TerrainHeight(p); job.Points.Add(new CoursePos { m_Position = p, m_ParentMesh = -1 }); }
             }
             // snapping is resolved again right before the definitions are written, so the course never
             // references nodes/edges that a previous build has just replaced
             var snapIdx = new HashSet<int>();
             for (int i = 0; i < job.Points.Count; i++) if (job.Points[i].m_Entity != Entity.Null || i == 0 || i == job.Points.Count - 1) snapIdx.Add(i);
-            job.Resnap = (i, cp) => snapIdx.Contains(i) ? SnapPoint(cp.m_Position, snap, wantRoad, new List<object>()) : cp;
+            job.Resnap = (i, cp) =>
+            {
+                if (fixedAt.TryGetValue(i, out var node)) return IsLive(node) ? NodeCoursePos(node) : new CoursePos { m_Position = cp.m_Position, m_ParentMesh = -1 };
+                return snapIdx.Contains(i) ? SnapPoint(cp.m_Position, snap, wantRoad, new List<object>(), prefab) : cp;
+            };
             tool.Enqueue(job);
-            return new BuildOperation(job, new Dictionary<string, object> { { "prefab", PrefabName(prefab) }, { "segments", job.Points.Count - 1 }, { "snapping", report } });
+            var extra = new Dictionary<string, object> { { "prefab", PrefabName(prefab) }, { "segments", job.Points.Count - 1 }, { "snapping", report } };
+            var attached = AttachedConnections(report, conns, prefab);
+            if (attached.Count > 0) return new NetConnectOperation(this, job, attached, extra);
+            return new BuildOperation(job, extra);
         }
 
         object Zone(Args a)
@@ -246,7 +298,9 @@ namespace ClaudeCityBridge
             info["pos"] = F2(pos);
             info["facing"] = F2(math.mul(rot, new float3(0, 0, 1)));
             info["corners"] = LotCorners(prefab, pos, rot); // the lot (BuildingPreview.cs)
-            var job = new ObjectJob { Prefab = prefab, Position = pos, Rotation = rot, DryRun = a.B("dryRun") };
+            // reproducible variation: a dry run and the real build of the same request preview the same variant (SeededObject.cs)
+            uint seed = a.Has("seed") ? (uint)(long)a.Num("seed") : SeededObjectJob.SeedFor(PrefabName(prefab), pos, rot);
+            var job = new SeededObjectJob { Prefab = prefab, Position = pos, Rotation = rot, DryRun = a.B("dryRun"), Seed = seed == 0 ? 1u : seed };
             var capturedPrefab = prefab;
             var capturedPos = pos;
             job.After = t => FindPlaced(capturedPrefab, capturedPos);

@@ -137,6 +137,9 @@ namespace ClaudeCityBridge
             public readonly List<Entity> Demolish = new List<Entity>();
             public readonly List<Dictionary<string, object>> Conflicts = new List<Dictionary<string, object>>();
             public readonly List<string> ConflictKeys = new List<string>();
+            // errors without a target (Invalid Shape, Steep Slope, No Road Access, ...): which preview part reported them, where
+            public readonly List<Dictionary<string, object>> Problems = new List<Dictionary<string, object>>();
+            public readonly List<string> ProblemKeys = new List<string>();
         }
 
         /// <summary>
@@ -186,8 +189,17 @@ namespace ClaudeCityBridge
                             continue;
                         }
                     }
-                    // target-less errors other than overlaps (no road access, steep slope, ...) are already in 'problems'
-                    if (!live && err.IndexOf("Overlap", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    // target-less errors other than overlaps (no road access, steep slope, invalid shape, ...) are counted in
+                    // 'problems'; keep where and by which part of the preview they were reported ('problemDetails')
+                    if (!live && err.IndexOf("Overlap", StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        var pd = ConflictItem(ic, owner, Entity.Null, err);
+                        pd.Remove("id");
+                        var by = (Dictionary<string, object>)pd["by"];
+                        var pkey = err + "|" + by["prefab"] + "|" + Math.Round(ic.m_Location.x) + "|" + Math.Round(ic.m_Location.z);
+                        if (!s.ProblemKeys.Contains(pkey)) { s.Problems.Add(pd); s.ProblemKeys.Add(pkey); }
+                        continue;
+                    }
                     var c = ConflictItem(ic, owner, live ? target : Entity.Null, err);
                     var key = err + "|" + (c.TryGetValue("id", out var cid) ? cid : null) + "|" + ((Dictionary<string, object>)c["by"])["prefab"];
                     if (seenC.Add(key)) { s.Conflicts.Add(c); s.ConflictKeys.Add(key); }
@@ -264,7 +276,7 @@ namespace ClaudeCityBridge
         /// kept aside in set.Growables so candidates can report how many they would demolish.
         /// Called from CollectObstacles; AddObjects skips them because they are Overridable.
         /// </summary>
-        void AddGrowableObstacles(ObstSet set, CollisionMask bmask, Dictionary<Entity, ObjectGeometryData?> geoCache, bool free)
+        void AddGrowableObstacles(ObstSet set, CollisionMask bmask, Dictionary<Entity, ObjectGeometryData?> geoCache, bool free, TerrainProbe tp = null)
         {
             const float objReach = 400f;
             if (free && set.Growables == null) set.Growables = new ObstSet(set.AreaMin, set.AreaMax, 32f);
@@ -292,8 +304,11 @@ namespace ClaudeCityBridge
                         : Game.Objects.ObjectUtils.GetCollisionMask(geo, true);
                     if ((m & bmask) == 0) continue;
                     var corners = BaseCorners(pos, trs[i].m_Rotation, geo.m_Bounds);
-                    if (free) set.Growables.AddPoly(corners, K_ZONED, e, false);
-                    else set.AddPoly(corners, K_ZONED, e, false);
+                    // height above the terrain, so a standing object's upper part (rotor) can pass over low buildings
+                    float baseY = tp != null ? trs[i].m_Position.y - tp.Height(pos) : 0f;
+                    float y0 = tp != null ? baseY + geo.m_Bounds.min.y : float.MinValue, y1 = tp != null ? baseY + geo.m_Bounds.max.y : float.MaxValue;
+                    if (free) set.Growables.AddPoly(corners, K_ZONED, e, false, y0, y1);
+                    else set.AddPoly(corners, K_ZONED, e, false, y0, y1);
                 }
             }
         }
@@ -371,6 +386,13 @@ namespace ClaudeCityBridge
             if (!em.HasComponent<ObjectGeometryData>(prefab)) return false;
             var g = em.GetComponentData<ObjectGeometryData>(prefab);
             var pos = position.xz;
+            if (StandingParts(g, out var legs, out _))
+            {
+                // standing object (wind turbine): only the legs (= the lot) stand on the ground; whether the upper part
+                // (rotor) removes a building is the game's 3D check, which the preview reports (via=preview)
+                polys.Add(BaseCorners(pos, rotation, new Bounds3(new float3(legs.min.x, 0, legs.min.y), new float3(legs.max.x, 0, legs.max.y))));
+                return true;
+            }
             if ((g.m_Flags & GeoFlags.Circular) != 0)
             {
                 var b = g.m_Bounds;
@@ -568,6 +590,8 @@ namespace ClaudeCityBridge
             readonly List<Entity> demolish = new List<Entity>();   // union over snapshots of the settled preview
             readonly List<Dictionary<string, object>> conflicts = new List<Dictionary<string, object>>();
             readonly HashSet<string> conflictKeys = new HashSet<string>();
+            readonly List<Dictionary<string, object>> problems = new List<Dictionary<string, object>>();
+            readonly HashSet<string> problemKeys = new HashSet<string>();
             int snapshots, settled;
             string blocked;
 
@@ -612,6 +636,7 @@ namespace ClaudeCityBridge
                             settled++;
                             foreach (var e in s.Demolish) if (!demolish.Contains(e)) demolish.Add(e);
                             for (int i = 0; i < s.Conflicts.Count; i++) if (conflictKeys.Add(s.ConflictKeys[i])) conflicts.Add(s.Conflicts[i]);
+                            for (int i = 0; i < s.Problems.Count; i++) if (problemKeys.Add(s.ProblemKeys[i])) problems.Add(s.Problems[i]);
                         }
                     }
                     if (!allowDemolish && !job.DryRun && s.Demolish.Count > 0)
@@ -640,7 +665,7 @@ namespace ClaudeCityBridge
                     list.Add(d);
                 };
                 bool preview = last != null;
-                if (preview && settled == 0) { demolish.AddRange(last.Demolish); conflicts.AddRange(last.Conflicts); } // preview never settled (300-frame timeout)
+                if (preview && settled == 0) { demolish.AddRange(last.Demolish); conflicts.AddRange(last.Conflicts); problems.AddRange(last.Problems); } // preview never settled (300-frame timeout)
                 foreach (var e in demolish) add(e, geo.Contains(e) ? "both" : "preview");
                 foreach (var e in geometryHits)
                 {
@@ -650,6 +675,7 @@ namespace ClaudeCityBridge
                 }
                 r["wouldDemolish"] = list;
                 r["conflicts"] = conflicts.Cast<object>().ToList();
+                if (problems.Count > 0) r["problemDetails"] = problems.Cast<object>().ToList();
                 r["demolishCheck"] = new Dictionary<string, object>
                 {
                     { "preview", preview }, { "previewSnapshots", snapshots }, { "settledSnapshots", settled },

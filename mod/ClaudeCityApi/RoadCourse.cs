@@ -164,9 +164,9 @@ namespace ClaudeCityBridge
         }
 
         /// <summary>At-grade points snap like /road; elevated points only to an existing node at about the same elevation.</summary>
-        CoursePos SnapElevated(float3 p, float e, float snap, bool wantRoad, List<object> report)
+        CoursePos SnapElevated(float3 p, float e, float snap, bool wantRoad, List<object> report, Entity prefab = default(Entity))
         {
-            if (math.abs(e) < 0.5f) return SnapPoint(p, snap, wantRoad, report);
+            if (math.abs(e) < 0.5f) return SnapPoint(p, snap, wantRoad, report, prefab);
             Entity best = Entity.Null; float bd = snap; float2 bestElev = 0;
             using (var nodes = NodeQuery().ToEntityArray(Allocator.Temp))
                 foreach (var n in nodes)
@@ -331,11 +331,30 @@ namespace ClaudeCityBridge
                 MaxSegment = math.max(16f, a.F("maxSegment", 96f)),
                 ElevationLimit = hasGeo && geo.m_ElevationLimit > 0 ? geo.m_ElevationLimit : 2f,
             };
+            // connectTo: attach an endpoint to a building's connection point (NetConnect.cs)
+            var conns = new List<NetConnection>();
+            var connErr = ParseConnectTo(a, prefab, xz[0], xz[xz.Count - 1], conns);
+            if (connErr != null) return connErr;
+            var fixedAt = new Dictionary<int, Entity>();
+            foreach (var c in conns)
+            {
+                int k = c.Index == 0 ? 0 : xz.Count - 1;
+                fixedAt[k] = c.Node;
+                xz[k] = em.GetComponentData<NetNode>(c.Node).m_Position.xz;
+                elev[k] = 0f;
+            }
             var report = new List<object>();
             for (int i = 0; i < xz.Count; i++)
             {
                 var p = new float3(xz[i].x, 0, xz[i].y);
-                job.Joints.Add(SnapElevated(p, elev[i], snap, wantRoad, report));
+                if (fixedAt.TryGetValue(i, out var cn))
+                {
+                    var ncp = NodeCoursePos(cn);
+                    var b = OwnerBuilding(cn);
+                    report.Add(new Dictionary<string, object> { { "snappedTo", "connectionPoint" }, { "id", Id(cn) }, { "building", b == Entity.Null ? null : Id(b) }, { "pos", F2(ncp.m_Position) } });
+                    job.Joints.Add(ncp);
+                }
+                else job.Joints.Add(SnapElevated(p, elev[i], snap, wantRoad, report, prefab));
                 job.Elev.Add(elev[i]);
                 job.Requested.Add(xz[i]);
             }
@@ -344,7 +363,11 @@ namespace ClaudeCityBridge
             for (int i = 0; i < job.Joints.Count; i++) if (job.Joints[i].m_Entity != Entity.Null || i == 0 || i == job.Joints.Count - 1) snapIdx.Add(i);
             var reqPos = xz.Select(v => new float3(v.x, 0, v.y)).ToArray();
             var reqElev = elev.ToArray();
-            job.Resnap = (i, cp) => snapIdx.Contains(i) ? SnapElevated(reqPos[i], reqElev[i], snap, wantRoad, new List<object>()) : cp;
+            job.Resnap = (i, cp) =>
+            {
+                if (fixedAt.TryGetValue(i, out var node)) return IsLive(node) ? NodeCoursePos(node) : new CoursePos { m_Position = cp.m_Position, m_ParentMesh = -1 };
+                return snapIdx.Contains(i) ? SnapElevated(reqPos[i], reqElev[i], snap, wantRoad, new List<object>(), prefab) : cp;
+            };
 
             // preview of the geometry (from the snapped positions now; recomputed identically at build time)
             var spanInfo = new List<object>();
@@ -395,7 +418,10 @@ namespace ClaudeCityBridge
             }
             if (warnings.Count > 0) geomInfo["warnings"] = warnings;
             tool.Enqueue(job);
-            return new BuildOperation(job, new Dictionary<string, object> { { "prefab", PrefabName(prefab) }, { "segments", spans.Count }, { "snapping", report }, { "geometry", geomInfo } });
+            var extra = new Dictionary<string, object> { { "prefab", PrefabName(prefab) }, { "segments", spans.Count }, { "snapping", report }, { "geometry", geomInfo } };
+            var attached = AttachedConnections(report, conns, prefab);
+            if (attached.Count > 0) return new NetConnectOperation(this, job, attached, extra);
+            return new BuildOperation(job, extra);
         }
     }
 }

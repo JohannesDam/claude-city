@@ -87,13 +87,15 @@ namespace ClaudeCityBridge
             }
             Result["areaId"] = Placed == Entity.Null ? null : Api.Id(Placed);
             if (Placed == Entity.Null) return;
-            if (!string.IsNullOrWhiteSpace(Name) && em.HasComponent<GA.District>(Placed))
-            {
-                try { Api.SetAreaName(Placed, Name); Result["nameSet"] = Name; }
-                catch (Exception ex) { Result["nameError"] = ex.Message; }
-            }
+            // the name is set by AreaOperation (bridge update): AfterApply runs in the tool update, where
+            // NameSystem.SetCustomName cannot get its EndFrameBarrier command buffer (SafeCommandBufferSystem
+            // throws "Trying to create EntityCommandBuffer when it's not allowed!" until AllowBarrier runs)
+            NamePending = !string.IsNullOrWhiteSpace(Name) && em.HasComponent<GA.District>(Placed);
             try { Result["area"] = Api.DescribeArea(Placed, 64, null); } catch (Exception ex) { Result["describeError"] = ex.Message; }
         }
+
+        /// <summary>Set by AfterApply when a district name still has to be applied (AreaOperation does it).</summary>
+        public bool NamePending;
     }
 
     /// <summary>Waits for an AreaJob; while the game shows the temporary preview it snapshots the temp
@@ -107,6 +109,7 @@ namespace ClaudeCityBridge
         readonly bool allowDemolish;
         Dictionary<string, object> preview;
         string blocked;
+        int nameTries;
 
         public AreaOperation(Api api, AreaJob job, Dictionary<string, object> info, bool allowDemolish = true)
         { this.api = api; this.job = job; this.info = info; this.allowDemolish = allowDemolish; }
@@ -130,12 +133,35 @@ namespace ClaudeCityBridge
                 if (Environment.TickCount - started > 30000) { result = new ApiError("area build timed out (is the game running and in-game?)", 504); return true; }
                 return false;
             }
+            if (job.NamePending && !TrySetName()) return false; // retried on the next frames (bounded)
             var r = new Dictionary<string, object>(info);
             foreach (var kv in job.Result) r[kv.Key] = kv.Value;
             if (preview != null) r["preview"] = preview;
             if (blocked != null) r["blocked"] = blocked;
             result = r;
             return true;
+        }
+
+        /// <summary>Applies the district name like the info panel rename (NameSystem.SetCustomName) from the bridge update;
+        /// true when finished (set, or given up after a few frames with nameError).</summary>
+        bool TrySetName()
+        {
+            try
+            {
+                api.SetAreaName(job.Placed, job.Name);
+                job.NamePending = false;
+                job.Result.Remove("nameError");
+                job.Result["nameSet"] = job.Name;
+                try { job.Result["area"] = api.DescribeArea(job.Placed, 64, null); } catch (Exception ex) { job.Result["describeError"] = ex.Message; }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                job.Result["nameError"] = ex.Message;
+                if (++nameTries < 30) return false;
+                job.NamePending = false;
+                return true;
+            }
         }
     }
 

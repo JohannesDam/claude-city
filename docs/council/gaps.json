@@ -706,5 +706,32 @@
   "reported_by": "troubleshooter",
   "status": "open",
   "added": "2026-11-20"
+ },
+ {
+  "rank": 67,
+  "domain": "Transport",
+  "feature": "Cargo station insight",
+  "why_it_matters": "No endpoint shows a cargo station's storage, trips, efficiency or workers - needed to find out why ships and trains carry 0 (Port Claude cargo harbour connected, CargoCountShip 0).",
+  "reported_by": "builder-northeast",
+  "status": "open",
+  "added": "2026-11-20"
+ },
+ {
+  "rank": 68,
+  "domain": "Build",
+  "feature": "Seaway segment length",
+  "why_it_matters": "/road splits nets into 96 m pieces by default; Medium Seaway is 210 m wide, so pieces overlap themselves - pass maxSegment 1000 for seaways (make it the default for waterways).",
+  "reported_by": "builder-northeast",
+  "status": "open",
+  "added": "2026-11-20"
+ },
+ {
+  "rank": 69,
+  "domain": "Insight",
+  "feature": "Building-owned nets",
+  "why_it_matters": "/nets does not list nets owned by a building (a harbour's own shipping lanes).",
+  "reported_by": "builder-northeast",
+  "status": "open",
+  "added": "2026-11-20"
  }
 ]

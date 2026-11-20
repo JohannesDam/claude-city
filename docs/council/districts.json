@@ -327,7 +327,7 @@
     4674
    ],
    "owner": "builder-northeast",
-   "phase": "acquisition",
+   "phase": "building",
    "character": "trade gateway on the north-east sea coast, downwind of all homes: cargo and passenger harbour, regional airport (phase 2), port logistics behind tree belts",
    "tiles": [
     [
@@ -355,7 +355,7 @@
      4363
     ]
    ],
-   "gameDistrict": null
+   "gameDistrict": "Port Claude"
   },
   {
    "name": "Eastport",
@@ -366,7 +366,7 @@
     3428
    ],
    "owner": "builder-northeast",
-   "phase": "acquisition",
+   "phase": "building",
    "character": "working waterfront: cargo quay, oil field and petrochemical works in the wedge between channel and coast, downwind of everything",
    "tiles": [
     [
@@ -386,7 +386,7 @@
      3117
     ]
    ],
-   "gameDistrict": null
+   "gameDistrict": "Eastport"
   },
   {
    "name": "Pearl Bay",
@@ -432,6 +432,20 @@
    "character": "research park on the ridge east of University Hill: Radio Telescope and later the geological station and collider in meadow and trees, no homes",
    "tiles": [],
    "gameDistrict": "Science Ridge"
+  },
+  {
+   "name": "Riverside",
+   "gameDistrict": null,
+   "bbox": [
+    1540,
+    2810,
+    2180,
+    3415
+   ],
+   "owner": "builder-northeast",
+   "phase": "building",
+   "character": "industrial extension east of Eastern Works around the curved Riverside Drive loop, green bank along the channel",
+   "tiles": []
   }
  ]
 }

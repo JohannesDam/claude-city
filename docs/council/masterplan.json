@@ -7,7 +7,9 @@
   "Every residential block within park coverage (GET /coverage?service=Park&layer=homes); every complaint type has an owner (tools/desk.py).",
   "Parks, attractions and the landmark zones below are protected: no zoning, no utilities, no industry there.",
   "Build only while holding the build lock with the game paused (tools/cc.py does this for every build call).",
-  "Map tiles are cheap (~0.1-0.4M): buy land rather than cramming; the outer high-voltage line in the NW blocks roads (pylons around (-2539,1716), (-2614,1833), (-2690,1950))."
+  "Map tiles are cheap (~0.1-0.4M): buy land rather than cramming; the outer high-voltage line in the NW blocks roads (pylons around (-2539,1716), (-2614,1833), (-2690,1950)).",
+  "Road network (owner remark 2031-01: 'alles zijn vierkantjes met dezelfde type wegen'): 94% of roads are Small Road and none are curved. Build a real hierarchy - highway -> Large Road arterials (ring + radials) -> Medium Road collectors (tree-lined boulevards) -> Small Road residential streets - and stop drawing plain grids: new districts follow the terrain and shorelines with curved roads, crescents, cul-de-sacs and squares; roundabouts at arterial junctions; overpasses where arterials cross highways. Use the curved/elevated road and roundabout API as soon as it exists.",
+  "Redevelopment is allowed (owner 2031-01: 'je mag ook wijken afschrijven en opnieuw opbouwen'): a district with a poor layout (monotone grid, only small roads, polluted, badly served) may be written off and rebuilt. Do it in phases (one block of ~500 m at a time) so the city keeps housing/jobs, while residential demand is high; plan the new layout first (curved streets, hierarchy, parks, services), then demolish (/bulldoze) and rebuild in the same round. First candidates: the SW medium quarter (x -3900..-2900, z -900..-150: small roads only, ~195 Leveling icons, weakest coverage) and Old industry south (upwind polluter, conversion to a green mixed district)."
  ],
  "zones": [
   {

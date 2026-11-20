@@ -1,6 +1,6 @@
 export const meta = {
   name: 'claude-city-council-round',
-  description: 'Claude City council round: 7 department aldermen plan in parallel, the mayor allocates the budget, workers execute approved plans one at a time',
+  description: 'Claude City council round: 8 department aldermen plan in parallel, the mayor allocates the budget, workers execute approved plans one at a time',
   whenToUse: 'One governing round of Claude City (Cities: Skylines II) after tools/council_brief.py has written logs/council/brief.json',
   phases: [
     { title: 'Plan', detail: 'each alderman assesses its domain and proposes projects (read-only)' },
@@ -29,7 +29,7 @@ const API = `
   post("/extension", {"owner": "<building id>", "prefab": "<upgrade name or substring>", "side": "auto"}, timeout=120) - build a service-building upgrade/extension (classrooms, gymnasium, extra garage, city hall wings...); dry run first;
   post("/buildingaction", {"id": .., "action": "outOfService|emptying|historical", "on": true}).
   Every build call accepts "dryRun": True. Results: applied, cost, errors, problems (e.g. "Overlap Existing", "Exceeds City Limits", "Invalid Shape").
-- NEVER POST /reload, /speed, /save, /load, /newgame, /ui, /taxes, /taxes2, /budget, /fees, /policy, /loan (mayor only - put such ideas in a proposal's actions as 'mayor:' items). Never bulldoze other departments' buildings or anything in a PROTECTED zone. Coordinates: x east, z north, metres. Wind blows SW->NE.
+- NEVER POST /reload, /speed, /save, /load, /newgame, /ui, /taxes, /taxes2, /budget, /fees, /policy, /loan (mayor only - put such ideas in a proposal's actions as 'mayor:' items). Never bulldoze other departments' buildings or anything in a PROTECTED zone (exception: an approved Urban Renewal project may demolish everything inside its approved phase box, except protected zones and service buildings it has not listed). Coordinates: x east, z north, metres. Wind blows SW->NE.
 - Knowledge: C:\\soft\\cityskyline\\docs\\council\\domains.md (your section + "Citizens & wellbeing" for happiness formulas), C:\\soft\\cityskyline\\docs\\council\\masterplan.json (zones, owners, rules), C:\\soft\\cityskyline\\logs\\council\\brief.json (this round's snapshot: finance, happiness, tickets, services, coverage), C:\\soft\\cityskyline\\logs\\desk\\<department>.json (your complaint tickets with hotspots).
 `
 
@@ -48,6 +48,8 @@ const DEPTS = [
     focus: 'Make the city an aesthetic pearl: trees/grass on main roads (halves noise - noise hotspots near the highway at (-497,2692)), a lakeside promenade with WaterPark01 on the SE lakeside, beautify downtown, landmarks/signature buildings, tourism. Air pollution penalty -0.42 (/pollution): find the sources near homes.' },
   { key: 'mobility', title: 'Alderman of Transport', section: '## 9. Mobility', zones: 'roads everywhere; coordinate with zone owners for new roads inside their zones',
     focus: 'Traffic penalty -0.8, ~36 bottlenecks (hotspots in logs/desk/mobility.json). Build a real bus network (line 1 exists along x=-1909; design 3-5 more lines connecting homes, jobs and the university quarter), more bus depots if needed, road maintenance depots (maintenance backlog is mostly road wear; only one road depot), roundabouts/hierarchy fixes at the worst hotspots. Train (TrainNode 1 dev point) and cargo rail are strategic options.' },
+  { key: 'renewal', title: 'Alderman of Urban Renewal (stadsvernieuwing)', section: '## 1. Urban planning & housing and ## 9. Mobility', zones: 'districts to write off and rebuild: SW medium quarter (x -3900..-2900, z -900..-150), Old industry south (x -3400..-1100, z -1400..-940); any other district you can justify (never the protected parks)',
+    focus: 'The owner allows writing off whole districts and rebuilding them better. The city is a monotone grid: 94% Small Road, 0 curved segments. Pick the district where a rebuild gains most (liveability, traffic, pollution, land value) and design its new layout: road hierarchy (Medium/Large collectors, tree-lined boulevards), curved streets and crescents following terrain/shore, squares, parks, schools/services, mixed zoning with demand. Plan it in phases of ~500 m (demolish a phase and rebuild it in the same round; residential demand is high, so people come back). Use the curved-road/roundabout/edge-bulldoze API if /road and /bulldoze support it (check GET /nets and a dry run), otherwise approximate curves with short straight segments.' },
 ]
 
 // per-round focus from the mayor overrides the defaults above
@@ -119,7 +121,7 @@ Your zones (masterplan): ${d.zones}.
 Focus for this round: ${d.focus}
 
 Do this (READ-ONLY: GET requests and reading files only - no builds, no dry runs, no POST at all):
-1. Read your handbook section in C:\\soft\\cityskyline\\docs\\council\\domains.md (${d.section}), the masterplan, the brief (logs/council/brief.json), the follow-ups addressed to you by earlier crews (logs/council/followups.json: key "${d.key}" plus items under other keys that mention your domain), the land already used (logs/council/sites.jsonl) and your tickets (logs/desk/${d.key === 'health_safety' ? 'health.json and logs/desk/safety.json' : d.key === 'parks' ? 'environment.json' : d.key + '.json'}).
+1. Read your handbook section in C:\\soft\\cityskyline\\docs\\council\\domains.md (${d.section}), the masterplan, the brief (logs/council/brief.json), the follow-ups addressed to you by earlier crews (logs/council/followups.json: key "${d.key}" plus items under other keys that mention your domain), the land already used (logs/council/sites.jsonl) and your tickets (logs/desk/${d.key === 'health_safety' ? 'health.json and logs/desk/safety.json' : d.key === 'parks' ? 'environment.json' : d.key === 'renewal' ? 'housing.json and logs/desk/mobility.json' : d.key + '.json'}).
 2. Investigate with GETs (map, coverage, services, findspot/freeland to check that sites really exist). Be efficient (~25 tool calls).
 3. Propose 2-5 projects, ranked, at least one of them big/strategic if it is justified. Each must be concrete enough for a worker to execute without guessing (prefab names from /prefabs, coordinates checked against /map or /findspot, order of steps). Estimate capex and monthly upkeep honestly. The whole council shares $${(FIN.envelope / 1e6).toFixed(1)}M and $${(FIN.upkeepCap / 1e6).toFixed(1)}M/month of new upkeep this round, and ${FIN.devPoints} development points.
 ${API}`,

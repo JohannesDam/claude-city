@@ -75,7 +75,7 @@ COMPLAINTS = {
     "Traffic Bottleneck Notification": ("mobility", 1.5, None, "Congestion: hierarchy (arterial/collector), extra connections, roundabouts, public transport along the corridor."),
     "Dead End": ("mobility", 0.5, None, "Dead-end road: connect it or it is intentional."),
     "No Road Access": ("mobility", 2.0, None, "Building without road access: connect a road."),
-    "No Car Access": ("mobility", 2.0, None, "No car access: road network gap."),
+    "No Car Access": ("mobility", 3.0, None, "No car access: a building's driveway ends where there is no road (e.g. a wide lot only partly on a road - the round-1 prison could not send vans for a week). Extend the frontage road along the whole lot front, then check the icon is gone."),
     "No Pedestrian Access": ("mobility", 1.0, None, "No pedestrian access: connect paths/roads."),
     "No Cargo Access": ("mobility", 2.0, None, "No cargo access: trucks can't reach (road connection)."),
     "No Bicycle Access": ("mobility", 0.5, None, "No bicycle access."),

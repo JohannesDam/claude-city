@@ -233,6 +233,22 @@ def edge_near(x, z, filt=None, radius=40):
     return segs[0]["id"] if segs else None
 
 
+ACCESS_ICONS = ("No Car Access", "No Pedestrian Access", "No Train Access", "Track Not Connected")
+
+
+def access_check(ids=None):
+    """Connection-warning icons (driveway or track ends without a road/track) for the given building ids,
+    or all of them. 'roadConnected' only checks the lot's front centre; a wide lot can still have its
+    vehicle exit where there is no road. Run after building, with the game running for a moment."""
+    ids = set(ids or [])
+    out = []
+    for t in ACCESS_ICONS:
+        for e in (get("/problems", type=t).get("problems") or [{}])[0].get("examples", []) if get else []:
+            if not ids or e.get("owner") in ids:
+                out.append({"type": t, **e})
+    return out
+
+
 FIT_TS = (0.5, 0.35, 0.65, 0.2, 0.8, 0.05, 0.95)
 
 

@@ -294,7 +294,10 @@ namespace ClaudeCityBridge
             var info = PolicyInfo(policy, ps);
             var scope = (string)info["scope"];
             if ((bool)info["locked"]) { var e1 = new ApiError("policy is locked", 409); e1["policy"] = info; return e1; }
-            if (info.ContainsKey("hidden")) return new ApiError("policy is hidden from the policy lists (not settable from the UI)", 409);
+            // route policies are hidden from the policy list but the line info panel sets them the same way
+            // (VehicleCountSection/TicketPriceSection -> PoliciesUISystem.SetPolicy(route, policy, true, adjustment))
+            bool linePanel = scope == "route";
+            if (info.ContainsKey("hidden") && !linePanel) return new ApiError("policy is hidden from the policy lists (not settable from the UI)", 409);
 
             Entity target;
             if (scope == "city") target = Sys<CitySystem>().City;
@@ -316,7 +319,7 @@ namespace ClaudeCityBridge
             }
             else return new ApiError("policy has no city/district/building/route scope");
             if (!em.HasBuffer<GPol.Policy>(target)) return new ApiError("target has no Policy buffer (cannot carry policies)", 409);
-            var offered = UiOffersPolicy(ui, policy, target);
+            var offered = linePanel ? (bool?)null : UiOffersPolicy(ui, policy, target);
             if (offered == false) return new ApiError("the game UI does not offer this policy for this target (PoliciesUISystem.FilterPolicy)", 409);
 
             bool wasActive = PolicyState(target, policy, out var oldAdj);

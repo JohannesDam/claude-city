@@ -8,6 +8,7 @@ CLI (builders):
   python -I worklist.py next <builder>          claim the best open item for this builder (prints it as JSON)
   python -I worklist.py mine <builder>          claimed + open items for this builder
   python -I worklist.py claim <id> <builder>     claim a specific open item
+  python -I worklist.py note <id> --note TEXT    add a note without changing the status
   python -I worklist.py done <id> [--spent N] [--note TEXT]
   python -I worklist.py fail <id> --note TEXT
   python -I worklist.py defer <id> --note TEXT
@@ -119,6 +120,19 @@ def cmd_claim(item_id, who):
     print(json.dumps({"error": f"no item {item_id}"}))
 
 
+def cmd_note(item_id, text):
+    """Append a note to an item without changing its status."""
+    with _FileLock():
+        d = load()
+        for i in d["items"]:
+            if i["id"] == item_id:
+                i["note"] = ((i.get("note") or "") + " | " + text).strip(" |")
+                save(d)
+                print(json.dumps({"id": item_id, "noted": True}))
+                return
+    print(json.dumps({"error": f"no item {item_id}"}))
+
+
 def cmd_mine(who):
     d = load()
     for i in sorted(for_builder(d["items"], who), key=_rank):
@@ -215,6 +229,8 @@ def main():
     c = a[0]
     if c == "next":
         cmd_next(a[1])
+    elif c == "note":
+        cmd_note(a[1], _opt("--note") or " ".join(a[2:]))
     elif c == "claim":
         cmd_claim(a[1], a[2])
     elif c == "mine":

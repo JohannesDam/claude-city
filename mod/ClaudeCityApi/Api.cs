@@ -80,6 +80,20 @@ namespace ClaudeCityBridge
                 case "/tiles": return RequireGame() ?? Tiles();
                 case "/buytile": return RequireGame() ?? BuyTile(p.Body);
                 case "/devtree": return RequireGame() ?? DevTree(p);
+                case "/services": return RequireGame() ?? Services(p);
+                case "/coverage": return RequireGame() ?? Coverage(p);
+                case "/hotspots": return RequireGame() ?? Hotspots(p);
+                case "/icontypes": return RequireGame() ?? IconTypes();
+                case "/findspot": return RequireGame() ?? FindSpot(p);
+                case "/freeland": return RequireGame() ?? FreeLand(p);
+                case "/unlockinfo": return RequireGame() ?? UnlockInfo(p.Q("name"));
+                case "/roadupgrades": return RequireGame() ?? RoadUpgrades();
+                case "/roadupgrade": return RequireGame() ?? RoadUpgrade(p.Body);
+                case "/transitprefabs": return RequireGame() ?? TransitPrefabs();
+                case "/stops": return RequireGame() ?? Stops(p.QF("x", 0), p.QF("z", 0), p.QF("radius", 1e6f), p.Q("type", "bus"));
+                case "/busstop": return RequireGame() ?? BusStop(p.Body);
+                case "/busline": return RequireGame() ?? BusLine(p.Body);
+                case "/lines": return RequireGame() ?? Lines(p.Q("type", "all"));
                 default: return new ApiError("unknown endpoint " + p.Path, 404);
             }
         }

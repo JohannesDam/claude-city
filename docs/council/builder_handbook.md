@@ -201,5 +201,7 @@ Write longer builds as scripts in `tools/builders/<you>_<item>.py` and run them 
 ### Never
 
 `/reload`, `/speed`, `/save`, `/load`, `/newgame`, `/ui`, `/taxes`, `/taxes2`, `/budget`, `/fees`, `/policy`,
-`/loan`, `/requests/reset`, `/devtree` - conductor only; put such needs in your report.
+`/loan`, `/requests/reset`, `/devtree` - conductor only; put such needs in your report. Exception: you may set
+the vehicle count of a line you built or own - `post("/policy", {"name":"Route Vehicle Count", "target":"<line id>",
+"value": 50..200})` (percent of the game's default) - when it shows NotEnoughVehicles or long waits and the depot has room.
 Coordinates: x east, z north, metres. Wind blows SW -> NE. Outer high-voltage pylons in the NW block roads.

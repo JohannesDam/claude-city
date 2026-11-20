@@ -733,5 +733,14 @@
   "reported_by": "builder-northeast",
   "status": "open",
   "added": "2026-11-20"
+ },
+ {
+  "rank": 70,
+  "domain": "Insight",
+  "feature": "Wrong upkeep for emergency shelters in /prefabs",
+  "why_it_matters": "/prefabs shows $27.5M and $1.1M a month for shelters; /budget rose only ~$107k for four - misleads cost estimates.",
+  "reported_by": "builder-central",
+  "status": "open",
+  "added": "2026-11-21"
  }
 ]

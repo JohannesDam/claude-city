@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "claude-city": {
+      "command": "node",
+      "args": ["C:/soft/cityskyline/mcp/server.mjs"],
+      "env": { "CS2_BRIDGE_URL": "http://127.0.0.1:8787" }
+    }
+  }
+}

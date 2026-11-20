@@ -1,0 +1,10 @@
+# build output
+mod/bin/
+tools/ildump/bin/
+__pycache__/
+*.pyc
+
+# runtime data and scratch copies
+logs/
+team/
+*.log

@@ -1,0 +1,221 @@
+// Tool catalogue for the Claude City MCP server. Each tool maps to one endpoint of the
+// ClaudeCityBridge mod's HTTP API (http[0] = method, http[1] = path).
+const obj = (properties = {}, required = []) => ({ type: 'object', properties, required });
+const num = description => ({ type: 'number', description });
+const str = description => ({ type: 'string', description });
+const point = { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: '[x, z] world metres' };
+
+export const TOOLS = [
+  {
+    name: 'cs2_status',
+    description: 'Game state: main menu / loading / in game, current city name, date, speed, and whether the bridge is responsive.',
+    inputSchema: obj(),
+    http: ['GET', '/status'],
+  },
+  {
+    name: 'cs2_maps',
+    description: 'List the maps that can be used to start a new city (name, id, buildable area, theme).',
+    inputSchema: obj(),
+    http: ['GET', '/maps'],
+  },
+  {
+    name: 'cs2_new_city',
+    description: 'Start a new city from the main menu. Normal gameplay (no unlimited money / unlock-all unless asked).',
+    inputSchema: obj({
+      map: str('Map name or id from cs2_maps'),
+      cityName: str('City name, e.g. "Claude City"'),
+      theme: str('Optional: "European" or "North American"'),
+      leftHandTraffic: { type: 'boolean' },
+    }, ['map', 'cityName']),
+    http: ['POST', '/newgame'],
+    timeoutMs: 120000,
+  },
+  {
+    name: 'cs2_city',
+    description: 'City dashboard: population, money, income/expenses, demand (residential/commercial/industrial/office), electricity, water, sewage, garbage, health, education, happiness, milestone/XP, tax rates.',
+    inputSchema: obj(),
+    http: ['GET', '/city'],
+  },
+  {
+    name: 'cs2_set_speed',
+    description: 'Set simulation speed: 0 = pause, 1, 2 or 3 (=fastest). Closes popups/menus that would keep the game paused.',
+    inputSchema: obj({ speed: num('0..3') }, ['speed']),
+    http: ['POST', '/speed'],
+  },
+  {
+    name: 'cs2_wait',
+    description: 'Let the simulation run (unpauses at the given speed, re-resumes if a popup pauses it) for a number of in-game days (1 day = 262144 frames, ~17 real minutes at speed 3) or until maxSeconds, then return the city dashboard.',
+    inputSchema: obj({ days: num('in-game days to wait (fractions ok)'), speed: num('1..3, default 3'), maxSeconds: num('real seconds cap, default 50, max ~170') }),
+    http: ['POST', '/wait'],
+    timeoutMs: 180000,
+  },
+  {
+    name: 'cs2_map',
+    description: 'Text map of an area: an ASCII grid (one char per cell) showing water, terrain height bands, roads, zoned cells and buildings, plus a legend. Use instead of screenshots.',
+    inputSchema: obj({ x: num('centre x'), z: num('centre z'), size: num('area width in metres (default 2000)'), cell: num('metres per character (default 40)') }),
+    http: ['GET', '/map'],
+  },
+  {
+    name: 'cs2_area_info',
+    description: 'Map facts: playable bounds, owned map tiles, outside connections (highways/rail/ship/air with positions), terrain height range, water level, natural resources summary.',
+    inputSchema: obj(),
+    http: ['GET', '/areainfo'],
+  },
+  {
+    name: 'cs2_terrain',
+    description: 'Terrain height and water depth at points.',
+    inputSchema: obj({ points: { type: 'array', items: point } }, ['points']),
+    http: ['POST', '/terrain'],
+  },
+  {
+    name: 'cs2_nets',
+    description: 'List road/rail/pipe segments in an area (id, prefab, start/end node positions, length, connected node ids).',
+    inputSchema: obj({ x: num('centre x'), z: num('centre z'), radius: num('metres (default 500)') }),
+    http: ['GET', '/nets'],
+  },
+  {
+    name: 'cs2_prefabs',
+    description: 'List prefabs with lock state, cost, lot size and service: roads, services (electricity, water & sewage, garbage, health, police, fire, education, parks, transport), zones, nets (pipes, power lines, paths), buildings (other plopables).',
+    inputSchema: obj({ category: str('roads | services | zones | nets | buildings | all'), filter: str('optional name substring'), unlockedOnly: { type: 'boolean' } }),
+    http: ['GET', '/prefabs'],
+  },
+  {
+    name: 'cs2_build_road',
+    description: 'Build a road (or other net: pipes, power lines) along a polyline. Points are [x,z]; consecutive points are straight segments. Snaps to existing nodes/edges within snap distance and connects to them. Set dryRun to only validate and get the cost.',
+    inputSchema: obj({
+      prefab: str('Net prefab name, e.g. "Small Road"'),
+      points: { type: 'array', items: point, minItems: 2 },
+      snap: num('snap distance in metres to existing nodes/edges (default 8)'),
+      maxSegment: num('long straight parts are split into segments of at most this length so they follow terrain (default 96)'),
+      dryRun: { type: 'boolean' },
+    }, ['prefab', 'points']),
+    http: ['POST', '/road'],
+  },
+  {
+    name: 'cs2_zone',
+    description: 'Zone cells. mode "rect": zone all zonable cells inside a rectangle (2 opposite corners) or quad (4 corners); mode "road": zone the cells along the given road segment ids (depth 1-6 cells, side both/left/right). zone = zone prefab name from cs2_prefabs category zones (e.g. "NA Residential Low", "NA Commercial Low", "Industrial Manufacturing") or "none" to dezone.',
+    inputSchema: obj({
+      zone: str('Zone prefab name or "none"'),
+      overwrite: { type: 'boolean', description: 'replace existing zoning (default true)' },
+      dryRun: { type: 'boolean' },
+      mode: str('"rect" or "road"'),
+      points: { type: 'array', items: point, description: 'polygon corners for mode rect' },
+      edges: { type: 'array', items: { type: 'number' }, description: 'net segment ids for mode road' },
+      depth: num('max cell depth from road (1..6, default 6)'),
+      side: str('"both" | "left" | "right" (mode road)'),
+    }, ['zone']),
+    http: ['POST', '/zone'],
+  },
+  {
+    name: 'cs2_place_building',
+    description: 'Place a service building / park / plopable prefab through the game tool pipeline (normal cost and validation). Give a road segment id (edge), t along it and side: the building is placed against that road, facing it. Or give x,z,angle (deg; 0 = front facing +z) for free placement. Returns cost, errors (e.g. Overlap Existing, No Groundwater), placedId and roadConnected. Use dryRun to try spots.',
+    inputSchema: obj({
+      prefab: str('Building prefab name, e.g. "Coal Power Plant01"'),
+      edge: num('road segment id to attach to'),
+      t: num('0..1 position along the segment (default 0.5)'),
+      side: str('"left" or "right" of the segment direction (default left)'),
+      gap: num('extra metres between road edge and lot (default 0.5)'),
+      x: num('free placement x'), z: num('free placement z'), angle: num('degrees, free placement'),
+      dryRun: { type: 'boolean' },
+    }, ['prefab']),
+    http: ['POST', '/building'],
+  },
+  {
+    name: 'cs2_buildings',
+    description: 'List buildings in an area or by kind (service buildings, zoned buildings summary, abandoned/condemned, problems).',
+    inputSchema: obj({ x: num('centre x'), z: num('centre z'), radius: num('metres'), kind: str('service | zoned | all') }),
+    http: ['GET', '/buildings'],
+  },
+  {
+    name: 'cs2_problems',
+    description: 'Active notification icons (no power, no water, sewage, garbage, traffic, high rent, abandoned, ...) grouped by type with counts and example positions.',
+    inputSchema: obj(),
+    http: ['GET', '/problems'],
+  },
+  {
+    name: 'cs2_zone_stats',
+    description: 'Per zone type: zoned cells, occupied cells and free cells (%). Low free % with high demand means: zone more.',
+    inputSchema: obj(),
+    http: ['GET', '/zonestats'],
+  },
+  {
+    name: 'cs2_milestones',
+    description: 'Current milestone, XP progress and what is unlocked; lists newly unlocked features.',
+    inputSchema: obj(),
+    http: ['GET', '/milestones'],
+  },
+  {
+    name: 'cs2_upgrade_road',
+    description: 'Replace existing road segments with another road prefab (e.g. Small Road -> Medium Road), like the road tool replace mode. Keep batches small (<=4 segments) and build while paused.',
+    inputSchema: obj({ prefab: str('target net prefab'), edges: { type: 'array', items: { type: 'string' } }, dryRun: { type: 'boolean' } }, ['prefab', 'edges']),
+    http: ['POST', '/upgrade'],
+  },
+  {
+    name: 'cs2_bulldoze',
+    description: 'Demolish top-level buildings by id (not roads). Use dryRun first.',
+    inputSchema: obj({ ids: { type: 'array', items: { type: 'string' } }, dryRun: { type: 'boolean' } }, ['ids']),
+    http: ['POST', '/bulldoze'],
+  },
+  {
+    name: 'cs2_groundwater',
+    description: 'Groundwater map: amount per cell and whether it is polluted (industry pollutes it; pumps on polluted groundwater make people sick), plus the best clean spots.',
+    inputSchema: obj({ x: num('centre x'), z: num('centre z'), size: num('metres (default 3000)'), cell: num('metres per char (default 64)') }),
+    http: ['GET', '/groundwater'],
+  },
+  {
+    name: 'cs2_saves',
+    description: 'List recent saves (id, name, city, population, time).',
+    inputSchema: obj(),
+    http: ['GET', '/saves'],
+  },
+  {
+    name: 'cs2_load',
+    description: 'Load a save by id or name (default: newest) from the main menu; force=true to leave a running game.',
+    inputSchema: obj({ id: str('save id'), name: str('save or city name'), force: { type: 'boolean' } }),
+    http: ['POST', '/load'],
+    timeoutMs: 120000,
+  },
+  {
+    name: 'cs2_tiles',
+    description: 'Map tiles: owned tile centres, how many tiles may be bought now (from milestones), and unowned neighbouring tiles (index, centre).',
+    inputSchema: obj(),
+    http: ['GET', '/tiles'],
+  },
+  {
+    name: 'cs2_buy_tile',
+    description: 'Buy a map tile like the purchase panel (game computes cost; money is charged). Give tile index or a world position inside it. dryRun returns cost/upkeep/status only.',
+    inputSchema: obj({ index: num('tile index from cs2_tiles'), x: num('x'), z: num('z'), dryRun: { type: 'boolean' } }),
+    http: ['POST', '/buytile'],
+  },
+  {
+    name: 'cs2_taxes',
+    description: 'Read tax rates; optionally set overall or per zone type (percent).',
+    inputSchema: obj({ overall: num('percent'), residential: num('percent'), commercial: num('percent'), industrial: num('percent'), office: num('percent') }),
+    http: ['POST', '/taxes'],
+  },
+  {
+    name: 'cs2_service_budget',
+    description: 'Read all city service budgets and upkeep; optionally set one service budget (50-150 %).',
+    inputSchema: obj({ service: str('service name, e.g. "Electricity"'), percent: num('50..150') }),
+    http: ['POST', '/budget'],
+  },
+  {
+    name: 'cs2_save',
+    description: 'Save the city under a name.',
+    inputSchema: obj({ name: str('save name, default city name') }),
+    http: ['POST', '/save'],
+    timeoutMs: 120000,
+  },
+  {
+    name: 'cs2_ui',
+    description: 'UI state and unblocking without screenshots: status (open screen, error dialog, pause barrier), resume (close error dialogs, milestone popup and menus), dismiss (errors only), confirm (answer a confirmation dialog with choice), notutorials (turn off tutorials; the intro tutorial otherwise keeps everything locked).',
+    inputSchema: obj({ action: str('status | resume | dismiss | confirm | notutorials | pausemenu'), choice: num('confirm: button index') }),
+    http: ['POST', '/ui'],
+  },
+  {
+    name: 'cs2_reload',
+    description: 'Developer: reload the hot-swappable API plugin DLL after rebuilding it.',
+    inputSchema: obj(),
+    http: ['POST', '/reload'],
+  },
+];

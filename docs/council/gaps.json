@@ -688,5 +688,14 @@
   "reported_by": "health round 2",
   "status": "open",
   "added": "2026-11-20"
+ },
+ {
+  "rank": 65,
+  "domain": "Build",
+  "feature": "Absolute deck height for bridges",
+  "why_it_matters": "Elevation is measured from the terrain (the lakebed under a lake, up to 62 m deep) and Large Road caps at 50 m; builders must compute deck height minus terrain per point. An option to give the deck height above sea/water level would make bridges straightforward.",
+  "reported_by": "builder-south",
+  "status": "open",
+  "added": "2026-11-20"
  }
 ]

@@ -277,7 +277,7 @@
     -350
    ],
    "owner": "builder-south",
-   "phase": "acquisition",
+   "phase": "new",
    "character": "garden town on the south-east lake shore facing Downtown: a landmark bridge boulevard into a transit square with a mixed-use core, curved lakefront boulevard and promenade, crescents of medium/low homes behind",
    "tiles": [
     [
@@ -297,7 +297,7 @@
      -1247
     ]
    ],
-   "gameDistrict": null
+   "gameDistrict": "East Bank"
   },
   {
    "name": "Northeast Wind Fields",

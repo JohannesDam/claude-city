@@ -29,6 +29,9 @@ STATIONS = {
     "dnorth": ("SubwayStation01", {"x": -1452.5, "z": 1763.21, "angle": -90}),
     "office": ("SubwayStation01", {"x": -1708.7, "z": -116.5, "angle": 0}),
     "southgate": ("SubwayStation01", {"x": -2532.72, "z": -604.05, "angle": 150.6}),
+    # phase B (builder-northeast informed by the conductor)
+    "northfield": ("SubwayStation01", {"x": -1452.5, "z": 2423.21, "angle": -90}),
+    "eastern": ("SubwayStation01", {"x": -253.03, "z": 2803.5, "angle": 0}),
 }
 
 

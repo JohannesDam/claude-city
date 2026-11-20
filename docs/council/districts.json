@@ -423,16 +423,17 @@
   {
    "name": "Science Ridge",
    "bbox": [
-    -930,
-    3500,
-    -500,
-    4050
+    -1225,
+    4300,
+    -940,
+    4670
    ],
    "owner": "builder-northeast",
-   "phase": "new",
+   "phase": "mature",
    "character": "research park on the ridge east of University Hill: Radio Telescope and later the geological station and collider in meadow and trees, no homes",
    "tiles": [],
-   "gameDistrict": "Science Ridge"
+   "gameDistrict": "University Hill",
+   "notes": "Radio Telescope 937617:111 and Geological Research Center 2258718:3 on Medical Drive; inside the in-game University Hill district (areas cannot overlap). The Large Hadron Collider needs its own tile later."
   },
   {
    "name": "Riverside",

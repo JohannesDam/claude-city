@@ -150,3 +150,46 @@ if __name__ == "__main__":
     elif MODE in ROADS:
         with paused(WHO):
             log(MODE, show(MODE, post("/road", ROADS[MODE])))
+
+
+# zoning: (zone, road, ref point, towards?) - side=None zones both sides
+ZONING = [
+    ("NA Commercial Low", "rect", [[-1840, 4935], [-1708, 4990]], None),   # the square south of the school
+    ("NA Commercial Low", "rect", [[-1840, 5145], [-1708, 5190]], None),   # the square north of the green
+    ("NA Residential High", "loop west", (-1850, 5050), True),
+    ("NA Residential High", "loop south", None, None),
+    ("NA Residential High", "loop north", (-1780, 5100), True),
+    ("NA Residential Medium", "loop north", (-1780, 5100), False),
+    ("NA Residential High", "loop east", (-1780, 5050), True),
+    ("NA Residential Medium", "loop east", (-1780, 5050), False),
+    ("NA Residential Mixed", "elm walk", None, None),
+    ("NA Residential Mixed", "oak walk", None, None),
+    ("NA Residential Mixed", "college row", None, None),
+    ("NA Residential Medium", "scholars lane", None, None),
+    ("NA Residential Medium", "fellows way", None, None),
+    ("NA Residential Medium", "lakeside entry", (-1950, 4700), True),
+]
+
+
+def run_zoning(dry):
+    for zname, key, ref, towards in ZONING:
+        if key == "rect":
+            r = post("/zone", {"zone": zname, "mode": "rect", "points": ref, "dryRun": dry})
+            print(f"{zname:<24} rect {ref} cells {r.get('cellsChanged')} err {r.get('errors')}", flush=True)
+            continue
+        b = ROADS[key]
+        if ref is None:
+            ids = [sg["id"] for sg in edges_along(b["points"], b["prefab"])]
+            r = post("/zone", {"zone": zname, "mode": "road", "edges": ids, "depth": 6, "side": "both", "dryRun": dry})
+            res = [("both", len(ids), r.get("cellsChanged"), r.get("errors"), r.get("error"))]
+        else:
+            res = zone_side(zname, b["points"], b["prefab"], ref, towards=towards, dry=dry)
+        print(f"{zname:<24} {key:<15} {res}", flush=True)
+
+
+if __name__ == "__main__" and MODE in ("zone-dry", "zone"):
+    if MODE == "zone-dry":
+        run_zoning(True)
+    else:
+        with paused(WHO):
+            run_zoning(False)

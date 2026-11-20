@@ -15,6 +15,7 @@ Stages (argument):
 """
 import json
 import math
+import re
 import sys
 import time
 
@@ -134,6 +135,110 @@ if stage == "boulevard":
         for up in ("Trees", "Grass"):
             u = post("/roadupgrade", {"polyline": poly, "tolerance": 14, "prefabFilter": "Medium Road", "upgrade": up, "side": "both"})
             print(up, u.get("applied"), u.get("errors"), u.get("edgeIdsAfter"))
+
+def centreline(step=2.0):
+    pts = [[-1814.0, -1000.0]]
+    z = -1000.0
+    while z > -1330:
+        z = max(z - step, -1330.0)
+        pts.append(a1(z) if z >= -1165 else a2(z))
+    return pts
+
+
+def lot_rect(b, shrink=0.5):
+    m = re.search(r"_(\d+)x(\d+)$", b["prefab"])
+    w, d = (int(m.group(1)), int(m.group(2))) if m else (2, 2)
+    x, z = b["pos"]
+    return (x - w * 4 + shrink, x + w * 4 - shrink, z - d * 4 + shrink, z + d * 4 - shrink)
+
+
+def quad_pts(q, step=2.0):
+    (ax, az), (bx, bz), (cx, cz), (dx, dz) = q
+    out = []
+    n = 8
+    for i in range(n + 1):
+        for j in range(n + 1):
+            u, v = i / n, j / n
+            px = (1 - v) * ((1 - u) * ax + u * dx) + v * ((1 - u) * bx + u * cx)
+            pz = (1 - v) * ((1 - u) * az + u * dz) + v * ((1 - u) * bz + u * cz)
+            out.append((px, pz))
+    return out
+
+
+def hits(q, rect):
+    return any(rect[0] <= x <= rect[1] and rect[2] <= z <= rect[3] for x, z in quad_pts(q))
+
+
+def band_quads(survivors, zmax=-1000, piece=16.0, maxdepth=4):
+    """road-mode style quads (12.5 m .. 12+8d m off the centreline) per 16 m piece and side, with the largest depth
+    that keeps clear of every surviving lot"""
+    cl = centreline()
+    # resample by arc length
+    acc, pieces, last = 0.0, [cl[0]], cl[0]
+    for p in cl[1:]:
+        acc += math.hypot(p[0] - last[0], p[1] - last[1]); last = p
+        if acc >= piece:
+            pieces.append(p); acc = 0.0
+    if pieces[-1] != cl[-1]:
+        pieces.append(cl[-1])
+    out = []
+    for p0, p1 in zip(pieces, pieces[1:]):
+        dx, dz = p1[0] - p0[0], p1[1] - p0[1]
+        L = math.hypot(dx, dz) or 1
+        nx, nz = -dz / L, dx / L
+        for s in (1, -1):
+            for dep in range(maxdepth, 0, -1):
+                inner, outer = 12.5, 12 + 8 * dep - 0.5
+                q = [[p0[0] + s * nx * inner, p0[1] + s * nz * inner], [p0[0] + s * nx * outer, p0[1] + s * nz * outer],
+                     [p1[0] + s * nx * outer, p1[1] + s * nz * outer], [p1[0] + s * nx * inner, p1[1] + s * nz * inner]]
+                if any(pt[1] > zmax for pt in q):
+                    continue
+                if not any(hits(q, r) for r in survivors):
+                    out.append({"q": [[round(a, 1), round(b, 1)] for a, b in q], "depth": dep, "z": p0[1], "side": s})
+                    break
+    return out
+
+
+if stage in ("band", "band-dry"):
+    bl = get("/buildings", kind="all", x=-1760, z=-1160, radius=260, limit=500)["buildings"]
+    newc = [b for b in bl if re.search(r"_L1_", b["prefab"]) and not b.get("service")]
+    surv = [b for b in bl if b not in newc]
+    rects = [lot_rect(b) for b in surv]
+    quads = band_quads(rects)
+    print(len(quads), "quads; depths", [q["depth"] for q in quads])
+    def small(b):  # small odd lots may face the boulevard: test them in both orientations
+        m = re.search(r"_(\d+)x(\d+)$", b["prefab"])
+        return bool(m) and max(int(m.group(1)), int(m.group(2))) <= 3
+
+    hit = [b for b in newc if any(hits(q["q"], lot_rect(b, shrink=0.5)) for q in quads)
+           or (small(b) and any(hits(q["q"], lot_rect({**b, "prefab": re.sub(r"_(\d+)x(\d+)$", lambda m: "_%sx%s" % (m.group(2), m.group(1)), b["prefab"])}))
+                                for q in quads))]
+    print("newcomers in band:", [(b["id"], b["prefab"], b["pos"]) for b in hit])
+    north = [q for q in quads if q["z"] > -1056]
+    rest = [q for q in quads if q["z"] <= -1056]
+    if stage == "band-dry":
+        sys.exit(0)
+    with paused(WHO):
+        if hit:
+            d = post("/bulldoze", {"ids": [b["id"] for b in hit], "dryRun": True})
+            log_demolitions("L1 industry that respawned on the Gateway Boulevard frontage (rezoned Office High)",
+                            [{"id": b["id"], "prefab": b["prefab"], "pos": b["pos"]} for b in hit])
+            r = post("/bulldoze", {"ids": [b["id"] for b in hit]})
+            print("bulldoze newcomers", r.get("applied"), r.get("buildings"))
+            time.sleep(1)
+        for name, qs in (("NA Commercial High", north), ("Office High", rest)):
+            ok = []
+            for q in qs:
+                d = post("/zone", {"zone": name, "mode": "rect", "points": q["q"], "overwrite": True, "dryRun": True})
+                if (d.get("occupiedCellsRezoned") or 0) == 0:
+                    ok.append(q)
+                else:
+                    print("  skip quad (occupied)", q["z"], q["side"], d.get("occupiedCellsRezoned"))
+            n = 0
+            for q in ok:
+                z = post("/zone", {"zone": name, "mode": "rect", "points": q["q"], "overwrite": True})
+                n += z.get("cellsChanged") or 0
+            print(name, len(ok), "quads,", n, "cells")
 
 if stage == "zone":
     with paused(WHO):

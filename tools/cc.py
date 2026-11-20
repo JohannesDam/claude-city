@@ -13,6 +13,10 @@ BASE = "http://127.0.0.1:8787"
 
 
 def call(method, path, body=None, timeout=180, **query):
+    if "?" in path:  # "/x?a=1&b=2" -> path + query kwargs (explicit kwargs win)
+        path, qs = path.split("?", 1)
+        for k, v in urllib.parse.parse_qsl(qs, keep_blank_values=True):
+            query.setdefault(k, v)
     query.setdefault("timeout", int(timeout * 1000) - 2000)
     if BUILD_LOCK.token and path not in ("/lock", "/unlock"):
         query.setdefault("lock", BUILD_LOCK.token)  # renews the lease; lets build calls through the busy tone

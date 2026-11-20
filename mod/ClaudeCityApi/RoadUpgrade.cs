@@ -189,17 +189,10 @@ namespace ClaudeCityBridge
             AgeMask age = ageName == "sapling" ? AgeMask.Sapling : ageName == "young" ? AgeMask.Young : ageName == "elderly" ? AgeMask.Elderly
                 : ageName == "mixed" ? AgeMask.Young | AgeMask.Mature | AgeMask.Elderly : AgeMask.Mature;
 
-            var ids = a.List("edges");
-            if (ids == null || ids.Count == 0) return new ApiError("edges: [ids] required");
-            var eq = EdgeQuery();
-            var edges = new List<Entity>();
-            foreach (var id in ids)
-            {
-                var e = Resolve(id, eq);
-                if (e == Entity.Null || !em.HasComponent<NetEdge>(e)) return new ApiError("edge not found: " + id);
-                if (em.HasComponent<Owner>(e)) return new ApiError("edge " + id + " belongs to a building/other object; not upgradable here");
-                if (!edges.Contains(e)) edges.Add(e);
-            }
+            // edges:[ids] (stale ids skipped + reported; strict:true restores all-or-nothing) and/or box/polyline (+prefabFilter)
+            var sel = SelectEdges(a, IsRoadEdge, false);
+            if (sel.Error != null) return sel.Error;
+            var edges = sel.Edges;
             // nodes shared by two selected edges are interior points of the "drag" (no IsFirst/IsLast there)
             var nodeUse = new Dictionary<Entity, int>();
             foreach (var e in edges)
@@ -218,6 +211,8 @@ namespace ClaudeCityBridge
             {
                 var prefab = em.GetComponentData<PrefabRef>(e).m_Prefab;
                 var r = new Dictionary<string, object> { { "id", Id(e) }, { "prefab", PrefabName(prefab) } };
+                var sideE = sel.Reversed.Contains(e) ? FlipSide(side) : side; // polyline selection: left/right follow the polyline
+                if (sideE != side) r["edgeSide"] = sideE;
                 report.Add(r);
                 if (!em.HasComponent<NetData>(prefab) || !em.HasComponent<Composition>(e)) { r["skipped"] = "not a net edge with composition"; continue; }
                 var nd = em.GetComponentData<NetData>(prefab);
@@ -264,8 +259,8 @@ namespace ClaudeCityBridge
                 if (middle) SideState(false, true);
                 else
                 {
-                    if (side == "right" || side == "both") SideState(false, false);
-                    if (side == "left" || side == "both") SideState(true, false);
+                    if (sideE == "right" || sideE == "both") SideState(false, false);
+                    if (sideE == "left" || sideE == "both") SideState(true, false);
                 }
 
                 var item = new NetUpgradeJob.Item { Edge = e };
@@ -313,7 +308,7 @@ namespace ClaudeCityBridge
                 r["changes"] = true;
                 job.Items.Add(item);
             }
-            var info = new Dictionary<string, object> { { "upgrade", PrefabName(up) }, { "side", side }, { "remove", remove }, { "edges", report } };
+            var info = new Dictionary<string, object> { { "upgrade", PrefabName(up) }, { "side", side }, { "remove", remove }, { "edges", report }, { "selection", sel.Report() } };
             if (treePrefab != Entity.Null) { info["tree"] = PrefabName(treePrefab); info["treeAge"] = age.ToString(); }
             if (job.Items.Count == 0) { info["applied"] = false; info["note"] = "nothing to change"; return info; }
             tool.Enqueue(job);

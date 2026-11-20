@@ -97,6 +97,7 @@ namespace ClaudeCityBridge
         {
             var tool = Tool;
             if (tool.Busy) return new ApiError("agent tool is busy with another build", 409);
+            if (WantsAdvancedRoad(a)) return RoadAdvanced(a); // curves / elevation / segments (RoadCourse.cs)
             var prefab = FindPrefab(a.Str("prefab", "Small Road"), e => em.HasComponent<NetData>(e) && em.HasComponent<PlaceableNetData>(e));
             if (prefab == Entity.Null) return new ApiError("net prefab not found: " + a.Str("prefab"));
             if (IsLocked(prefab)) return new ApiError(PrefabName(prefab) + " is still locked");
@@ -115,7 +116,7 @@ namespace ClaudeCityBridge
                 int k = math.max(1, (int)math.ceil(d / maxSeg));
                 for (int s = 1; s <= k; s++) dense.Add(math.lerp(raw[i - 1], raw[i], s / (float)k));
             }
-            var job = new NetJob { Prefab = prefab, DryRun = a.B("dryRun") };
+            var job = new TrackedNetJob { Prefab = prefab, DryRun = a.B("dryRun"), Api = this };
             var report = new List<object>();
             for (int i = 0; i < dense.Count; i++)
             {
@@ -201,7 +202,7 @@ namespace ClaudeCityBridge
                 }
             }
             tool.Enqueue(job);
-            return new BuildOperation(job, new Dictionary<string, object> { { "zone", dezone ? "none" : PrefabName(prefab) }, { "quads", job.Quads.Count } });
+            return new ZoneCountOperation(this, job, new Dictionary<string, object> { { "zone", dezone ? "none" : PrefabName(prefab) }, { "quads", job.Quads.Count } });
         }
 
         object PlaceBuilding(Args a)
@@ -216,6 +217,7 @@ namespace ClaudeCityBridge
             float3 pos;
             quaternion rot;
             var info = new Dictionary<string, object> { { "prefab", PrefabName(prefab) }, { "lot", new List<object> { lot.x, lot.y } } };
+            if (a.Has("near") && !a.Has("edge")) { var nearErr = ResolveNearRoad(a, prefab, info); if (nearErr != null) return nearErr; }
             if (a.Has("edge"))
             {
                 var e = Resolve(a.Raw("edge"), EdgeQuery());
@@ -266,6 +268,7 @@ namespace ClaudeCityBridge
             if (best == Entity.Null) { r["placedId"] = null; return r; }
             r["placedId"] = Id(best);
             if (em.HasComponent<Building>(best)) r["roadConnected"] = em.GetComponentData<Building>(best).m_RoadEdge != Entity.Null;
+            AddRoadsideInfo(best, r);
             return r;
         }
     }

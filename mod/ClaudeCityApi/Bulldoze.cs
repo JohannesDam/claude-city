@@ -48,6 +48,7 @@ namespace ClaudeCityBridge
         {
             var tool = Tool;
             if (tool.Busy) return new ApiError("agent tool is busy", 409);
+            if (a.Has("edges") || a.Has("box") || a.Has("polyline")) return BulldozeNets(a); // net edges (+ optional ids of buildings)
             var ids = a.List("ids");
             if (ids == null || ids.Count == 0) return new ApiError("ids required");
             var q = em.CreateEntityQuery(ComponentType.ReadOnly<Game.Buildings.Building>(), ComponentType.Exclude<Deleted>(), ComponentType.Exclude<Temp>());

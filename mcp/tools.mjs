@@ -81,10 +81,13 @@ export const TOOLS = [
   },
   {
     name: 'cs2_build_road',
-    description: 'Build a road (or other net: pipes, power lines) along a polyline. Points are [x,z]; consecutive points are straight segments. Snaps to existing nodes/edges within snap distance and connects to them. Set dryRun to only validate and get the cost.',
+    description: 'Build a road (or other net: pipes, power lines) along a polyline. Points are [x,z] (or [x,z,elevation] for bridges/overpasses); consecutive points are straight segments unless curve="smooth" (the game fits real curves through the points) or segments with control points are given. Snaps to existing nodes/edges and connects to them. Results list builtEdges/newEdgeIds, geometry (turnDeg, minRadius, warnings), wouldDemolish and conflicts. Set dryRun to only validate and get the cost.',
     inputSchema: obj({
       prefab: str('Net prefab name, e.g. "Small Road"'),
-      points: { type: 'array', items: point, minItems: 2 },
+      points: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 3 }, minItems: 2, description: '[x,z] or [x,z,elevation]' },
+      curve: str('"straight" (default) or "smooth"'),
+      segments: { type: 'array', items: { type: 'object' }, description: 'alternative to points: [{start:[x,z], control:[x,z], end:[x,z]}, {control, end}, ...]' },
+      elevation: num('metres above terrain for the whole road'),
       snap: num('snap distance in metres to existing nodes/edges (default 8)'),
       maxSegment: num('long straight parts are split into segments of at most this length so they follow terrain (default 96)'),
       allowDemolish: { type: 'boolean', description: 'false = refuse the build if it would remove zoned buildings (homes/shops/offices); result lists them in wouldDemolish either way' }, dryRun: { type: 'boolean' },
@@ -152,8 +155,8 @@ export const TOOLS = [
   },
   {
     name: 'cs2_bulldoze',
-    description: 'Demolish top-level buildings by id (not roads). Use dryRun first.',
-    inputSchema: obj({ ids: { type: 'array', items: { type: 'string' } }, dryRun: { type: 'boolean' } }, ['ids']),
+    description: 'Demolish buildings by id and/or road/track edges (edges, or box/polyline + nets filter) and/or every building in a box (buildings:true). The dry run reports households, residents, companies and workers affected. Use dryRun first.',
+    inputSchema: obj({ ids: { type: 'array', items: { type: 'string' } }, edges: { type: 'array', items: { type: 'string' } }, box: { type: 'array', items: { type: 'number' }, description: '[x0,z0,x1,z1]' }, polyline: { type: 'array', items: point }, nets: str('net filter for box/polyline, e.g. "Small Road|Medium Road"'), buildings: { type: 'boolean' }, keepServices: { type: 'boolean' }, dryRun: { type: 'boolean' } }),
     http: ['POST', '/bulldoze'],
   },
   {
@@ -449,6 +452,31 @@ export const TOOLS = [
     description: 'Create a named district (prefab "district", name, points) or redraw a specialized-industry work area (owner = main building id, points within its maxRadius) through the game area tool. Returns cost, errors and the game preview (size, resourceAmount).',
     inputSchema: obj({ prefab: str('"district" or omit for a work area'), name: str('district name'), owner: str('extractor main building id'), points: { type: 'array', items: point }, dryRun: { type: 'boolean' } }, ['points']),
     http: ['POST', '/area'],
+    timeoutMs: 120000,
+  },
+  {
+    name: 'cs2_nodes',
+    description: 'Road junctions near (x,z): degree, traffic lights, all-way stop, roundabout, connected edges.',
+    inputSchema: obj({ x: num(''), z: num(''), radius: num(''), minDegree: num('default 1') }, ['x', 'z']),
+    http: ['GET', '/nodes'],
+  },
+  {
+    name: 'cs2_node_upgrade',
+    description: 'Traffic lights or all-way stop on junction nodes (or remove them).',
+    inputSchema: obj({ upgrade: str('"Traffic Lights" | "All-way Stop"'), nodes: { type: 'array', items: { type: 'string' } }, near: point, remove: { type: 'boolean' }, dryRun: { type: 'boolean' } }, ['upgrade']),
+    http: ['POST', '/nodeupgrade'],
+  },
+  {
+    name: 'cs2_roundabouts',
+    description: 'Roundabout prefabs (size, cost, lock) and placed roundabouts.',
+    inputSchema: obj({ x: num(''), z: num(''), radius: num('') }),
+    http: ['GET', '/roundabouts'],
+  },
+  {
+    name: 'cs2_roundabout',
+    description: 'Put a roundabout on a junction node (game net object), or remove it. Reports wouldDemolish/conflicts.',
+    inputSchema: obj({ node: str('node id'), at: point, size: str('small | medium (default) | large | xl'), prefab: str(''), remove: { type: 'boolean' }, allowDemolish: { type: 'boolean' }, dryRun: { type: 'boolean' } }),
+    http: ['POST', '/roundabout'],
     timeoutMs: 120000,
   },
   {

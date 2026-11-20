@@ -58,12 +58,16 @@ namespace ClaudeCityBridge
                 case "/map": return RequireGame() ?? MapText.Render(this, p);
                 case "/areainfo": return RequireGame() ?? AreaInfo();
                 case "/terrain": return RequireGame() ?? Terrain(p.Body);
-                case "/nets": return RequireGame() ?? Nets(p.QF("x", 0), p.QF("z", 0), p.QF("radius", 500), p.Q("filter"));
+                case "/nets": return RequireGame() ?? NetsPaged(p);
+                case "/nodes": return RequireGame() ?? Nodes(p);
+                case "/nodeupgrade": return RequireGame() ?? NodeUpgrade(p.Body);
+                case "/roundabouts": return RequireGame() ?? Roundabouts(p);
+                case "/roundabout": return RequireGame() ?? Safety(Roundabout(p.Body), p.Body);
                 case "/prefabs": return RequireGame() ?? Prefabs(p.Q("category", "all"), p.Q("filter"), p.Q("unlockedOnly", "false") == "true");
                 case "/road": return RequireGame() ?? Safety(Road(p.Body), p.Body);
                 case "/zone": return RequireGame() ?? Zone(p.Body);
                 case "/building": return RequireGame() ?? Safety(PlaceBuilding(p.Body), p.Body);
-                case "/buildings": return RequireGame() ?? Buildings(p.QF("x", 0), p.QF("z", 0), p.QF("radius", 1e6f), p.Q("kind", "service"));
+                case "/buildings": return RequireGame() ?? Buildings(p.QF("x", 0), p.QF("z", 0), p.QF("radius", 1e6f), p.Q("kind", "service"), (int)p.QF("offset", 0), (int)p.QF("limit", 300));
                 case "/problems": return RequireGame() ?? Problems(p.Q("type"));
                 case "/save": return RequireGame() ?? new SaveOperation(this, p.Body.Str("name"));
                 case "/taxes": return RequireGame() ?? Taxes(p.Body);
@@ -701,10 +705,11 @@ namespace ClaudeCityBridge
             return new Dictionary<string, object> { { "problems", res } };
         }
 
-        object Buildings(float x, float z, float radius, string kind)
+        object Buildings(float x, float z, float radius, string kind, int offset = 0, int limit = 300)
         {
             var q = em.CreateEntityQuery(ComponentType.ReadOnly<Building>(), ComponentType.ReadOnly<ObjTransform>(), ComponentType.ReadOnly<PrefabRef>(), ComponentType.Exclude<Deleted>(), ComponentType.Exclude<Temp>());
             var res = new List<object>();
+            var matched = new List<KeyValuePair<float, Entity>>(); // (distance, building): sorted for stable paging
             var zoned = new Dictionary<string, int>();
             int total = 0, noRoad = 0, abandoned = 0;
             using (var arr = q.ToEntityArray(Allocator.Temp))
@@ -726,17 +731,27 @@ namespace ClaudeCityBridge
                     }
                     bool destroyed = em.HasComponent<Game.Common.Destroyed>(e);
                     if (kind == "all" || (kind == "service" && service) || (kind == "destroyed" && destroyed) || (kind == "abandoned" && em.HasComponent<Abandoned>(e)))
-                    {
-                        if (res.Count >= 300) continue;
-                        res.Add(new Dictionary<string, object>
-                        {
-                            { "id", Id(e) }, { "prefab", PrefabName(prefab) }, { "pos", F2(tr.m_Position) },
-                            { "roadConnected", b.m_RoadEdge != Entity.Null }, { "service", service ? PrefabName(em.GetComponentData<ServiceObjectData>(prefab).m_Service) : null },
-                        });
-                    }
+                        matched.Add(new KeyValuePair<float, Entity>(math.distance(tr.m_Position.xz, new float2(x, z)), e));
                 }
             }
-            return new Dictionary<string, object> { { "total", total }, { "withoutRoad", noRoad }, { "abandoned", abandoned }, { "zonedByZone", zoned }, { "buildings", res } };
+            matched.Sort((m1, m2) => m1.Key != m2.Key ? m1.Key.CompareTo(m2.Key) : m1.Value.Index.CompareTo(m2.Value.Index));
+            offset = math.max(0, offset); limit = math.clamp(limit, 1, 5000);
+            for (int i = offset; i < matched.Count && res.Count < limit; i++)
+            {
+                var e = matched[i].Value;
+                var prefab = em.GetComponentData<PrefabRef>(e).m_Prefab;
+                bool service = em.HasComponent<ServiceObjectData>(prefab);
+                res.Add(new Dictionary<string, object>
+                {
+                    { "id", Id(e) }, { "prefab", PrefabName(prefab) }, { "pos", F2(em.GetComponentData<ObjTransform>(e).m_Position) },
+                    { "roadConnected", em.GetComponentData<Building>(e).m_RoadEdge != Entity.Null }, { "service", service ? PrefabName(em.GetComponentData<ServiceObjectData>(prefab).m_Service) : null },
+                });
+            }
+            bool truncated = offset + res.Count < matched.Count;
+            var r = new Dictionary<string, object> { { "total", total }, { "withoutRoad", noRoad }, { "abandoned", abandoned }, { "zonedByZone", zoned },
+                { "matching", matched.Count }, { "offset", offset }, { "limit", limit }, { "returned", res.Count }, { "truncated", truncated }, { "buildings", res } };
+            if (truncated) r["nextOffset"] = offset + res.Count;
+            return r;
         }
 
         // ------------------------------------------------------------------ economy

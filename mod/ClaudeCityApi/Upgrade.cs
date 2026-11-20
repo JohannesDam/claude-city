@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Colossal.Mathematics;
 using Game.Common;
 using Game.Net;
@@ -55,13 +56,14 @@ namespace ClaudeCityBridge
             if (prefab == Entity.Null) return new ApiError("net prefab not found");
             if (IsLocked(prefab)) return new ApiError(PrefabName(prefab) + " is still locked");
             var job = new ReplaceJob { Prefab = prefab, DryRun = a.B("dryRun") };
-            var eq = EdgeQuery();
-            var ids = a.List("edges");
-            if (ids != null)
-                foreach (var id in ids) { var e = Resolve(id, eq); if (e != Entity.Null) job.Edges.Add(e); }
-            if (job.Edges.Count == 0) return new ApiError("no edges resolved");
+            // edges:[ids] (stale ids skipped + reported) and/or box/polyline with prefabFilter (required); same-prefab edges are skipped
+            var sel = SelectEdges(a, SameLayerAs(prefab), true);
+            if (sel.Error != null) return sel.Error;
+            int samePrefab = 0;
+            foreach (var e in sel.Edges) { if (em.GetComponentData<PrefabRef>(e).m_Prefab == prefab) samePrefab++; else job.Edges.Add(e); }
+            if (job.Edges.Count == 0) return new ApiError("no edges to replace" + (samePrefab > 0 ? " (" + samePrefab + " already " + PrefabName(prefab) + ")" : "")) { { "selection", sel.Report() } };
             tool.Enqueue(job);
-            return new BuildOperation(job, new Dictionary<string, object> { { "prefab", PrefabName(prefab) }, { "edges", job.Edges.Count } });
+            return new BuildOperation(job, new Dictionary<string, object> { { "prefab", PrefabName(prefab) }, { "edges", job.Edges.Count }, { "edgeIds", job.Edges.Select(e => (object)Id(e)).ToList() }, { "skippedSamePrefab", samePrefab }, { "selection", sel.Report() } });
         }
     }
 }

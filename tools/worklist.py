@@ -90,7 +90,7 @@ def cmd_next(who):
         d = load()
         claimed = [i for i in for_builder(d["items"], who) if i["status"] == "claimed" and i.get("claimedBy") == who]
         if claimed:
-            print(json.dumps({"alreadyClaimed": sorted(claimed, key=_rank)[0]}, indent=1, ensure_ascii=False))
+            print(json.dumps({"alreadyClaimed": sorted(claimed, key=_rank)[0]}, indent=1, ensure_ascii=True))
             return
         open_ = sorted((i for i in for_builder(d["items"], who) if i["status"] == "open"), key=_rank)
         if not open_:
@@ -99,7 +99,7 @@ def cmd_next(who):
         it = open_[0]
         it.update(status="claimed", claimedBy=who, claimedAt=time.strftime("%Y-%m-%d %H:%M:%S"))
         save(d)
-        print(json.dumps(it, indent=1, ensure_ascii=False))
+        print(json.dumps(it, indent=1, ensure_ascii=True))
 
 
 def cmd_mine(who):

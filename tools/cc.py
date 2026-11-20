@@ -255,9 +255,50 @@ class paused:
         return False
 
 
-def find_spot(prefab, x, z, radius=400, n=8, **kw):
-    """Ranked placements from GET /findspot (occupancy model of the area; ~0.2 s)."""
-    return get("/findspot", prefab=prefab, x=x, z=z, radius=min(radius, 1000), n=n, **kw).get("candidates") or []
+_PROTECTED = None
+
+
+def protected_boxes():
+    """[x0, z0, x1, z1] boxes nobody may build in: protected districts in docs/council/districts.json and
+    masterplan zones whose use says PROTECTED."""
+    global _PROTECTED
+    if _PROTECTED is None:
+        import os
+        root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs", "council")
+        boxes = []
+        try:
+            with open(os.path.join(root, "districts.json"), encoding="utf-8") as f:
+                boxes += [d["bbox"] for d in json.load(f).get("districts", []) if d.get("protected")]
+            with open(os.path.join(root, "masterplan.json"), encoding="utf-8") as f:
+                for zn in json.load(f).get("zones", []):
+                    if "PROTECTED" in str(zn.get("use", "")) and zn.get("bbox"):
+                        boxes.append(zn["bbox"])
+        except (OSError, ValueError, KeyError):
+            pass
+        _PROTECTED = boxes
+    return _PROTECTED
+
+
+def _inside(px, pz, b):
+    return min(b[0], b[2]) <= px <= max(b[0], b[2]) and min(b[1], b[3]) <= pz <= max(b[1], b[3])
+
+
+def find_spot(prefab, x, z, radius=400, n=8, within=None, exclude_protected=True, **kw):
+    """Ranked placements from GET /findspot (occupancy model of the area; ~0.2 s).
+    within=[x0, z0, x1, z1] keeps only candidates inside that box (e.g. your district's bbox);
+    exclude_protected drops candidates in protected parks/zones (on by default)."""
+    want = n * 3 if (within or exclude_protected) else n
+    cands = get("/findspot", prefab=prefab, x=x, z=z, radius=min(radius, 1000), n=want, **kw).get("candidates") or []
+    out = []
+    for c in cands:
+        px, pz = c.get("x"), c.get("z")
+        if px is not None and pz is not None:
+            if within and not _inside(px, pz, within):
+                continue
+            if exclude_protected and any(_inside(px, pz, b) for b in protected_boxes()):
+                continue
+        out.append(c)
+    return out[:n]
 
 
 def place_smart(prefab, x, z, radius=400, n=8, dry=False, **kw):

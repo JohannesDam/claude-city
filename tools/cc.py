@@ -42,7 +42,7 @@ BUILD_PATHS = {"/road", "/zone", "/building", "/upgrade", "/bulldoze", "/buytile
 
 # builds that may remove zoned buildings (homes, shops, offices, factories) refuse to do so unless the caller passes
 # allowDemolish=True (urban renewal); the API reports them in "wouldDemolish" either way
-DEMOLISH_GUARDED = {"/road", "/building", "/upgrade", "/roadupgrade"}
+DEMOLISH_GUARDED = {"/road", "/building", "/upgrade", "/roadupgrade", "/roundabout", "/extension"}
 
 
 def post(path, body=None, **q):

@@ -110,3 +110,29 @@ if __name__ == "__main__":
                 for up in ups:
                     u = post("/roadupgrade", {"box": BOX, "prefabFilter": prefab, "upgrade": up, "side": "both"})
                     print(prefab, up, u.get("applied"), u.get("cost"), u.get("errors"))
+
+
+# zoning plan (edge ids read after the roads were built; side = travelling start -> end)
+ZONING = {
+    "both": ["2178183:41", "2116810:53", "2178195:41", "2156838:35", "2153764:35", "2177693:21", "2155702:41",
+             "2177696:21"],
+    "left": ["2178301:39", "2178197:41", "2178199:41",              # spine: east side only beside the ore field
+             "2153023:17", "2140391:37", "2177768:21", "2177769:21", "2156041:33"],  # loop north: inner side only
+    "right": ["2153025:15", "2153026:15", "2153029:15", "2153097:21"],   # Ore Lane: away from the hub/work area
+}
+
+
+def zone_all(dry):
+    total = 0
+    for side, edges in ZONING.items():
+        body = {"zone": "Industrial Manufacturing", "mode": "road", "edges": edges, "depth": 6, "side": side}
+        r = post("/zone", {**body, "dryRun": dry})
+        print(side, "dry" if dry else "", json.dumps(short(r, keys=("applied", "errors", "cellsChanged", "areaM2",
+                                                                       "occupiedCellsRezoned", "error")))[:400])
+        if not dry:
+            log(f"zone {side}", short(r, keys=("applied", "cellsChanged", "errors")))
+
+
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] in ("zone-dry", "zone"):
+    with paused(WHO):
+        zone_all(sys.argv[1] == "zone-dry")

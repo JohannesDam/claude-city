@@ -742,5 +742,41 @@
   "reported_by": "builder-central",
   "status": "open",
   "added": "2026-11-21"
+ },
+ {
+  "rank": 71,
+  "domain": "Transit",
+  "feature": "Line/stop API rough edges",
+  "why_it_matters": "/line rejects 'plane' (needs 'airplane'); /stops lists only bus stops; the 'no Airplane depot' warning on airplane lines is false (the airport supplies planes).",
+  "reported_by": "builder-east",
+  "status": "open",
+  "added": "2026-11-21"
+ },
+ {
+  "rank": 72,
+  "domain": "Insight",
+  "feature": "/vehicles filters",
+  "why_it_matters": "/vehicles ignores x/z/radius and lists at most 2000 vehicles.",
+  "reported_by": "builder-east",
+  "status": "open",
+  "added": "2026-11-21"
+ },
+ {
+  "rank": 73,
+  "domain": "Economy",
+  "feature": "Extractor work-area error",
+  "why_it_matters": "An extractor work area must include the hub's back edge; the error only says 'Overlap Existing'.",
+  "reported_by": "builder-east",
+  "status": "open",
+  "added": "2026-11-21"
+ },
+ {
+  "rank": 74,
+  "domain": "Build",
+  "feature": "Ramp curve fitting",
+  "why_it_matters": "Smooth ramps with a midpoint give radius 31-41 m; startDir/endDir without a midpoint give 80-136 m - prefer tangents, or make curve fitting radius-aware.",
+  "reported_by": "builder-east",
+  "status": "open",
+  "added": "2026-11-21"
  }
 ]

@@ -274,7 +274,7 @@
    "bbox": [
     -150,
     -2200,
-    1300,
+    934,
     -350
    ],
    "owner": "builder-south",
@@ -450,15 +450,15 @@
   },
   {
    "name": "East Gate",
-   "gameDistrict": null,
+   "gameDistrict": "East Gate",
    "bbox": [
-    1300,
+    935,
     -2181,
     5298,
     312
    ],
    "owner": "builder-east",
-   "phase": "acquisition",
+   "phase": "building",
    "character": "the city's second gateway: a curved tree-lined Southern Parkway from the SE outside highway to the South gateway, Claude International Airport, a lakefront hotel and office strip, and logistics/ore works behind tree belts - all downwind/away from homes",
    "tiles": []
   },

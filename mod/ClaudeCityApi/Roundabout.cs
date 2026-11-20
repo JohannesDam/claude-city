@@ -128,8 +128,17 @@ namespace ClaudeCityBridge
 
     public partial class Api
     {
-        bool IsRoundaboutPrefab(Entity e) => em.HasComponent<NetObjectData>(e) && em.HasComponent<PrefabData>(e)
-            && (em.GetComponentData<NetObjectData>(e).m_CompositionFlags.m_General & CompositionFlags.General.Roundabout) != 0;
+        /// <summary>
+        /// Road roundabouts and cul-de-sacs: net objects with the Roundabout composition flag that need a road
+        /// (m_RequireRoad). Pillars (Vertical Pillar, power-line pylons) carry the flag too but require no road;
+        /// they are left out of /roundabouts and can never be picked or removed by /roundabout.
+        /// </summary>
+        bool IsRoundaboutPrefab(Entity e)
+        {
+            if (!em.HasComponent<NetObjectData>(e) || !em.HasComponent<PrefabData>(e)) return false;
+            var nod = em.GetComponentData<NetObjectData>(e);
+            return (nod.m_CompositionFlags.m_General & CompositionFlags.General.Roundabout) != 0 && nod.m_RequireRoad != RoadTypes.None;
+        }
 
         /// <summary>Net objects attached to a node (roundabouts and other node net objects).</summary>
         List<Entity> NetObjectsOn(Entity node)

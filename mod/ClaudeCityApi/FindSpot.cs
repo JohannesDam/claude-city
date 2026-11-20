@@ -565,10 +565,31 @@ namespace ClaudeCityBridge
             public string Mode; public Entity Edge; public float T; public bool Right; public float Gap; public string Road;
             public float2 Pos, Fwd, Front; public LotRect Rect;
             public float HRange, SteepPct, Slack, Dist, Score; public bool Roomy, DeadEndRoad;
+            public float Setback; // the requested setback that fitted (Gap adds the composition's extra width)
         }
 
         /// <summary>
-        /// GET /findspot?prefab=|w=&amp;d=&amp;x&amp;z&amp;radius=300&amp;n=5&amp;step=4&amp;gap=0.5&amp;side=both&amp;filter=&amp;steep=0.25&amp;maxSteepPct=10&amp;deadEnds=0
+        /// Setbacks (m between the road's default edge and the lot front) /findspot tries at every position,
+        /// smallest first: setbacks=0.5,2,3.5 or gap=... (one value or a list); default 0.5, 2 and 3.5 m
+        /// (a lot that hits a curb, node or roadside object at 0.5 m often fits a little further back).
+        /// </summary>
+        static List<float> ReadSetbacks(Pending p)
+        {
+            var s = p.Q("setbacks") ?? p.Q("gap") ?? "0.5,2,3.5";
+            var res = new List<float>();
+            foreach (var part in s.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                if (float.TryParse(part, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v))
+                {
+                    v = math.clamp(v, 0f, 8f);
+                    if (!res.Any(x => math.abs(x - v) < 0.01f)) res.Add(v);
+                }
+            if (res.Count == 0) res.Add(0.5f);
+            res.Sort();
+            return res.Count > 6 ? res.GetRange(0, 6) : res;
+        }
+
+        /// <summary>
+        /// GET /findspot?prefab=|w=&amp;d=&amp;x&amp;z&amp;radius=300&amp;n=5&amp;step=4&amp;setbacks=0.5,2,3.5 (or gap=)&amp;side=both&amp;filter=&amp;steep=0.25&amp;maxSteepPct=10&amp;deadEnds=0
         /// Ranked placements where the lot fits with its front on a road (same meaning as POST /building edge/t/side/gap).
         /// </summary>
         object FindSpot(Pending p)
@@ -581,7 +602,7 @@ namespace ClaudeCityBridge
             float radius = math.clamp(p.QF("radius", 300f), 16f, 1000f);
             int want = math.clamp((int)p.QF("n", 5f), 1, 50);
             float step = math.clamp(p.QF("step", 4f), 2f, 32f);
-            float gap = math.clamp(p.QF("gap", 0.5f), 0f, 8f);
+            var setbacks = ReadSetbacks(p);
             float steep = math.max(0.01f, p.QF("steep", 0.25f));
             float maxSteepPct = p.QF("maxSteepPct", 10f);
             string sideQ = (p.Q("side", "both") ?? "both").ToLowerInvariant();
@@ -611,7 +632,7 @@ namespace ClaudeCityBridge
                     totalLen += cv.m_Length;
                 }
             int nSides = sideQ == "both" ? 2 : 1;
-            const int maxPositions = 60000;
+            int maxPositions = setbacks.Count > 1 ? 40000 : 60000; // failing positions are evaluated once per setback
             if (totalLen * nSides / step > maxPositions) step = totalLen * nSides / maxPositions;
 
             var rejected = new int[KindNames.Length];
@@ -624,12 +645,12 @@ namespace ClaudeCityBridge
                 string roadName = PrefabName(pf);
                 // PlaceBuilding offsets by NetGeometryData default width; widen the gap if the actual composition is wider
                 float hwPlace = em.HasComponent<NetGeometryData>(pf) ? em.GetComponentData<NetGeometryData>(pf).m_DefaultWidth * 0.5f : 4f;
-                float edgeGap = gap;
+                float extraWidth = 0f; // gap passed to /building = setback + this
                 if (em.HasComponent<Composition>(e))
                 {
                     var ce = em.GetComponentData<Composition>(e).m_Edge;
                     if (ce != Entity.Null && em.HasComponent<NetCompositionData>(ce))
-                        edgeGap = math.max(gap, em.GetComponentData<NetCompositionData>(ce).m_Width * 0.5f - hwPlace + gap);
+                        extraWidth = math.max(0f, em.GetComponentData<NetCompositionData>(ce).m_Width * 0.5f - hwPlace);
                 }
                 var edge = em.GetComponentData<NetEdge>(e);
                 bool deadEndRoad = Degree(edge.m_Start) == 1 || Degree(edge.m_End) == 1;
@@ -646,21 +667,28 @@ namespace ClaudeCityBridge
                         var pt = MathUtils.Position(cv.m_Bezier, t);
                         if (math.distance(pt.xz, c) > radius) continue;
                         positions++;
-                        // identical to PlaceBuilding (edge mode)
+                        // identical to PlaceBuilding (edge mode); the smallest setback that fits wins
                         var dir = math.normalizesafe(MathUtils.Tangent(cv.m_Bezier, t).xz);
                         var left = new float2(-dir.y, dir.x);
                         var n = right ? -left : left;
-                        var pos = pt.xz + n * (hwPlace + depth * 0.5f + edgeGap);
                         var fwd = -n;
-                        var rect = MakeRect(pos, fwd, spec.Local);
-                        int why = EvalLot(obs, tp, ref rect, spec, steep, maxSteepPct, out var lt);
-                        if (why >= 0) { rejected[why]++; continue; }
-                        ok[i] = true;
-                        seq[i] = new Spot
+                        int firstWhy = -1;
+                        foreach (var sb in setbacks)
                         {
-                            Mode = "edge", Edge = e, T = t, Right = right, Gap = edgeGap, Road = roadName, DeadEndRoad = deadEndRoad,
-                            Pos = pos, Fwd = fwd, Front = pt.xz, Rect = rect, HRange = lt.HMax - lt.HMin, SteepPct = lt.SteepPct,
-                        };
+                            float edgeGap = sb + extraWidth;
+                            var pos = pt.xz + n * (hwPlace + depth * 0.5f + edgeGap);
+                            var rect = MakeRect(pos, fwd, spec.Local);
+                            int why = EvalLot(obs, tp, ref rect, spec, steep, maxSteepPct, out var lt);
+                            if (why >= 0) { if (firstWhy < 0) firstWhy = why; continue; }
+                            ok[i] = true;
+                            seq[i] = new Spot
+                            {
+                                Mode = "edge", Edge = e, T = t, Right = right, Gap = edgeGap, Setback = sb, Road = roadName, DeadEndRoad = deadEndRoad,
+                                Pos = pos, Fwd = fwd, Front = pt.xz, Rect = rect, HRange = lt.HMax - lt.HMin, SteepPct = lt.SteepPct,
+                            };
+                            break;
+                        }
+                        if (!ok[i] && firstWhy >= 0) rejected[firstWhy]++; // reason at the smallest setback
                     }
                     // slack: how far the lot could slide along this road side before it stops fitting
                     float stepLen = cv.m_Length / K;
@@ -702,15 +730,23 @@ namespace ClaudeCityBridge
                         }
                         deadEndTried++;
                         var fwd = -dirOut;
-                        var pos = np + dirOut * (ext + gap + depth * 0.5f);
-                        var rect = MakeRect(pos, fwd, spec.Local);
-                        int why = EvalLot(obs, tp, ref rect, spec, steep, maxSteepPct, out var lt);
-                        if (why >= 0) { rejected[why]++; continue; }
-                        valid.Add(new Spot
+                        int firstWhy = -1;
+                        bool fits = false;
+                        foreach (var sb in setbacks)
                         {
-                            Mode = "deadEnd", Edge = e, T = atStart ? 0f : 1f, Gap = gap, Road = PrefabName(pf), DeadEndRoad = true,
-                            Pos = pos, Fwd = fwd, Front = np, Rect = rect, HRange = lt.HMax - lt.HMin, SteepPct = lt.SteepPct,
-                        });
+                            var pos = np + dirOut * (ext + sb + depth * 0.5f);
+                            var rect = MakeRect(pos, fwd, spec.Local);
+                            int why = EvalLot(obs, tp, ref rect, spec, steep, maxSteepPct, out var lt);
+                            if (why >= 0) { if (firstWhy < 0) firstWhy = why; continue; }
+                            valid.Add(new Spot
+                            {
+                                Mode = "deadEnd", Edge = e, T = atStart ? 0f : 1f, Gap = sb, Setback = sb, Road = PrefabName(pf), DeadEndRoad = true,
+                                Pos = pos, Fwd = fwd, Front = np, Rect = rect, HRange = lt.HMax - lt.HMin, SteepPct = lt.SteepPct,
+                            });
+                            fits = true;
+                            break;
+                        }
+                        if (!fits && firstWhy >= 0) rejected[firstWhy]++;
                     }
                 }
 
@@ -722,7 +758,8 @@ namespace ClaudeCityBridge
                 s.Roomy = obs.FirstHit(ref roomy, OverlapEps) == null;
                 s.Dist = math.distance(s.Rect.C, c);
                 s.Score = 100f - 40f * math.min(1f, s.Dist / distNorm) - math.min(20f, s.HRange)
-                    - 10f * (1f - math.min(s.Slack, 16f) / 16f) - (s.Roomy ? 0f : 8f) - (s.Mode == "deadEnd" ? 10f : 0f);
+                    - 10f * (1f - math.min(s.Slack, 16f) / 16f) - (s.Roomy ? 0f : 8f) - (s.Mode == "deadEnd" ? 10f : 0f)
+                    - 1.5f * (s.Setback - setbacks[0]); // a deeper setback means a longer driveway
             }
             valid.Sort((a, b) => b.Score.CompareTo(a.Score));
 
@@ -758,6 +795,7 @@ namespace ClaudeCityBridge
                     { "heightRange", Math.Round(s.HRange, 1) }, { "steepPct", Math.Round(s.SteepPct, 1) },
                     { "deadEndRoad", s.DeadEndRoad },
                 };
+                d["setback"] = Math.Round(s.Setback, 2);
                 if (s.Mode == "edge")
                 {
                     d["t"] = Math.Round(s.T, 5);
@@ -780,11 +818,12 @@ namespace ClaudeCityBridge
                 { "prefab", spec.Name }, { "lot", new List<object> { spec.Lot.x, spec.Lot.y } },
                 { "lotMetres", new List<object> { spec.Lot.x * 8, spec.Lot.y * 8 } },
                 { "centre", XZ(c) }, { "radius", radius }, { "step", Math.Round(step, 2) },
+                { "setbacks", setbacks.Select(v => (object)Math.Round(v, 2)).ToList() },
                 { "searched", new Dictionary<string, object> { { "roadEdges", fronts.Count }, { "positions", positions }, { "deadEnds", deadEndTried }, { "valid", valid.Count }, { "obstacles", obs.All.Count } } },
                 { "rejected", rej },
                 { "candidates", cands },
                 { "ms", new Dictionary<string, object> { { "collect", msCollect }, { "total", sw.ElapsedMilliseconds } } },
-                { "usage", "POST /building with candidates[i].building (edge/t/side/gap reproduce exactly this position); buildingXZ is the same spot as x/z/angle. Higher score = better (near, flat, room to slide 'slack' m, 'roomy' = 2 m spare beside/behind)." },
+                { "usage", "POST /building with candidates[i].building (edge/t/side/gap reproduce exactly this position); buildingXZ is the same spot as x/z/angle. Higher score = better (near, flat, room to slide 'slack' m, 'roomy' = 2 m spare beside/behind). Each position tries the setbacks (m from the road edge to the lot front; setbacks=0.5,2,3.5 or gap=) smallest first; 'setback' is the one that fitted." },
             };
             if (spec.SkipWater) r["note"] = "prefab is a shoreline/floating/underwater object: the no-water rule was not applied";
             if (cands.Count == 0)

@@ -245,12 +245,13 @@ namespace ClaudeCityBridge
             pos.y = TerrainHeight(pos);
             info["pos"] = F2(pos);
             info["facing"] = F2(math.mul(rot, new float3(0, 0, 1)));
+            info["corners"] = LotCorners(prefab, pos, rot); // the lot (BuildingPreview.cs)
             var job = new ObjectJob { Prefab = prefab, Position = pos, Rotation = rot, DryRun = a.B("dryRun") };
             var capturedPrefab = prefab;
             var capturedPos = pos;
             job.After = t => FindPlaced(capturedPrefab, capturedPos);
             tool.Enqueue(job);
-            return new BuildOperation(job, info);
+            return new BuildingOperation(this, job, info); // + roadConnected from the preview in dry runs
         }
 
         Dictionary<string, object> FindPlaced(Entity prefab, float3 pos)

@@ -121,31 +121,52 @@ namespace ClaudeCityBridge
     }
 
     /// <summary>
-    /// Runs one or more ExtensionJobs: with several candidate slots (side=auto) each is previewed as a
-    /// dry run until one validates without errors; then (unless dryRun) that slot is built for real.
+    /// Runs one or more ExtensionJobs, each watched for demolition (Api.DemolishWatch: the extension lot
+    /// against growable lots, plus the preview's own validation icons). The game's preview does not flag
+    /// growables under an extension, but building it condemns them, so the lot check is what counts.
+    /// With several candidate slots (side=auto) each is previewed as a dry run; the first that validates
+    /// without errors AND removes no zoned building is used (PlaceExtension sorts slots whose lot overlaps
+    /// zoned lots to the end). If every slot that validates would demolish, allowDemolish=true takes the
+    /// one removing the fewest; allowDemolish=false (default) refuses ("blocked"). Then (unless dryRun)
+    /// the chosen slot is built for real, watched again: a real build that would demolish without
+    /// allowDemolish is switched to a dry run before the tool applies it.
     /// </summary>
     public class ExtensionOperation : IOperation
     {
+        const string ExtGeometryNote = "via=geometry: the extension lot overlaps these zoned lots. The game's preview does not flag growables under an extension (no warning, errors = 0), but once it is built their zone cells are occupied and the game condemns them";
+
         readonly Api api;
         readonly AgentToolSystem tool;
         readonly List<Api.ExtSlot> slots;
         readonly bool dryRun;
+        readonly bool allowDemolish;
         readonly Func<Api.ExtSlot, bool, ExtensionJob> make;
         readonly Dictionary<string, object> info;
         readonly List<object> tried = new List<object>();
         readonly int started = Environment.TickCount;
         readonly int timeoutMs;
         ExtensionJob current;
+        Api.DemolishWatch watch;
         int index;
         bool applying;
+        // the validating slot that removes the fewest zoned buildings (used with allowDemolish=true, else reported)
+        int bestIndex = -1, bestDemolish, bestRenters;
+        Dictionary<string, object> bestResult;
 
-        public ExtensionOperation(Api api, AgentToolSystem tool, List<Api.ExtSlot> slots, bool dryRun, Func<Api.ExtSlot, bool, ExtensionJob> make, Dictionary<string, object> info)
+        public ExtensionOperation(Api api, AgentToolSystem tool, List<Api.ExtSlot> slots, bool dryRun, bool allowDemolish, Func<Api.ExtSlot, bool, ExtensionJob> make, Dictionary<string, object> info)
         {
-            this.api = api; this.tool = tool; this.slots = slots; this.dryRun = dryRun; this.make = make; this.info = info;
+            this.api = api; this.tool = tool; this.slots = slots; this.dryRun = dryRun; this.allowDemolish = allowDemolish; this.make = make; this.info = info;
             timeoutMs = 30000 + 4000 * slots.Count; // HTTP waits 60 s unless ?timeout= is given
             // a single slot is run directly (no separate probe)
-            current = make(slots[0], slots.Count == 1 ? dryRun : true);
             applying = slots.Count == 1 && !dryRun;
+            Start(slots[0], slots.Count == 1 ? dryRun : true);
+        }
+
+        void Start(Api.ExtSlot slot, bool dry)
+        {
+            current = make(slot, dry);
+            // created before the tool sees the job: with allowDemolish=false a real build over zoned lots becomes a dry run
+            watch = new Api.DemolishWatch(api, current, allowDemolish) { GeometryNote = ExtGeometryNote };
             tool.Enqueue(current);
         }
 
@@ -153,55 +174,97 @@ namespace ClaudeCityBridge
             !j.Result.ContainsKey("error") && j.Result.TryGetValue("errors", out var e) && e is int ei && ei == 0
             && j.Result.TryGetValue("previewEntities", out var p) && p is int pi && pi > 0;
 
+        static List<object> DemolishList(Dictionary<string, object> r) =>
+            r.TryGetValue("wouldDemolish", out var w) && w is List<object> l ? l : new List<object>();
+
+        static int RentersOf(List<object> list) =>
+            list.Sum(o => o is Dictionary<string, object> d && d.TryGetValue("renters", out var n) && n is int i ? i : 0);
+
         public bool Step(out object result)
         {
             result = null;
             if (!current.Done)
             {
+                watch.Observe();
                 if (Environment.TickCount - started > timeoutMs) { result = new ApiError("extension build timed out (is the game running and in-game?)", 504); return true; }
                 return false;
             }
             var slot = slots[index];
-            var summary = new Dictionary<string, object> { { "slot", slot.Label }, { "ok", Ok(current) } };
-            foreach (var k in new[] { "cost", "errors", "warnings", "problems", "applied", "error", "warning" })
-                if (current.Result.TryGetValue(k, out var v)) summary[k] = v;
+            var r = new Dictionary<string, object>(current.Result);
+            try { watch.Merge(r); } catch (Exception e) { r["safetyError"] = e.GetType().Name + ": " + e.Message; }
+            var demolishList = DemolishList(r);
+            int demolishN = demolishList.Count, renters = RentersOf(demolishList);
+            bool ok = Ok(current);
+            var summary = new Dictionary<string, object> { { "slot", slot.Label }, { "ok", ok }, { "demolishes", demolishN } };
+            if (demolishN > 0)
+            {
+                summary["renters"] = renters;
+                summary["demolishIds"] = demolishList.Select(o => o is Dictionary<string, object> d && d.TryGetValue("id", out var id) ? id : null).ToList();
+            }
+            foreach (var k in new[] { "cost", "errors", "warnings", "problems", "applied", "error", "warning", "blocked" })
+                if (r.TryGetValue(k, out var v)) summary[k] = v;
             tried.Add(summary);
 
-            if (applying || (slots.Count == 1))
+            if (applying || slots.Count == 1)
             {
-                result = Finish(current, slot);
+                result = Finish(r, slot, demolishN, renters);
                 return true;
             }
-            if (Ok(current))
+            if (ok && demolishN == 0)
             {
-                if (dryRun) { result = Finish(current, slot); return true; }
+                if (dryRun) { result = Finish(r, slot, 0, 0); return true; }
                 applying = true;
-                current = make(slot, false);
-                tool.Enqueue(current);
+                Start(slot, false);
                 return false;
             }
-            index++;
-            if (index >= slots.Count)
+            if (ok && (bestIndex < 0 || demolishN < bestDemolish || (demolishN == bestDemolish && renters < bestRenters)))
             {
-                var r = Finish(current, slot);
-                r["error"] = "no side of the owner lot validated for this extension (see tried[].problems)";
-                result = r;
+                bestIndex = index; bestDemolish = demolishN; bestRenters = renters; bestResult = r;
+            }
+            index++;
+            // without allowDemolish the outcome is decided once only lot-overlap slots remain and one of them validated
+            bool decided = !allowDemolish && bestIndex >= 0 && slots.Skip(index).All(s => s.Demolishes > 0);
+            if (index < slots.Count && !decided)
+            {
+                Start(slots[index], true);
+                return false;
+            }
+            if (bestIndex >= 0)
+            {
+                var bs = slots[bestIndex];
+                if (allowDemolish && !dryRun)
+                {
+                    index = bestIndex;
+                    applying = true;
+                    Start(bs, false);
+                    return false;
+                }
+                result = Finish(bestResult, bs, bestDemolish, bestRenters);
                 return true;
             }
-            current = make(slots[index], true);
-            tool.Enqueue(current);
-            return false;
+            var er = Finish(r, slot, demolishN, renters);
+            er["error"] = "no side of the owner lot validated for this extension (see tried[].problems)";
+            result = er;
+            return true;
         }
 
-        Dictionary<string, object> Finish(ExtensionJob j, Api.ExtSlot slot)
+        Dictionary<string, object> Finish(Dictionary<string, object> r, Api.ExtSlot slot, int demolishN, int renters)
         {
-            var r = new Dictionary<string, object>(j.Result);
             foreach (var kv in info) r[kv.Key] = kv.Value;
             r["slot"] = slot.Label;
             r["pos"] = Api.F2(slot.Pos);
             r["facing"] = Api.F2(math.mul(slot.Rot, new float3(0, 0, 1)));
             r["dryRun"] = dryRun;
+            r["allowDemolish"] = allowDemolish;
             if (tried.Count > 1) r["tried"] = tried;
+            if (demolishN > 0 && !allowDemolish && !r.ContainsKey("blocked"))
+            {
+                // dry runs and probes: say what the real call does (a real single-slot build is blocked by the watch itself)
+                string what = (slots.Count > 1 ? "every slot that validates would demolish zoned buildings (e.g. " : "this slot would demolish ")
+                    + demolishN + " building(s), " + renters + " renter(s)" + (slots.Count > 1 ? " at " + slot.Label + ")" : "");
+                r["blocked"] = what + " (allowDemolish=false); " + (dryRun ? "the real call would build nothing" : "nothing was built");
+                r["applied"] = false;
+            }
             return r;
         }
     }
@@ -216,6 +279,7 @@ namespace ClaudeCityBridge
             public float3 Pos;
             public quaternion Rot;
             public float Along;   // metres from the start of the side line (after snapping)
+            public int Demolishes = -1; // growable lots under the extension lot (ExtensionSafety.cs), -1 = not checked
         }
 
         public HashSet<Entity> InstalledUpgradeSet(Entity owner)
@@ -455,7 +519,7 @@ namespace ClaudeCityBridge
             return c;
         }
 
-        Dictionary<string, object> OfferJson(Entity owner, Entity up, bool module, bool withSlots)
+        Dictionary<string, object> OfferJson(Entity owner, Entity up, bool module, bool withSlots, ObstSet idx = null)
         {
             bool placeable = em.HasComponent<GP.PlaceableObjectData>(up);
             bool locked = IsLocked(up);
@@ -484,11 +548,29 @@ namespace ClaudeCityBridge
             if (eff.Count > 0) d["effects"] = eff;
             string why = locked ? "locked" : (forbid && built > 0) ? "already built (one per building)" : null;
             if (owner != Entity.Null && why == null && em.HasComponent<Destroyed>(owner)) why = "owner destroyed";
-            d["canBuild"] = why == null;
-            if (why != null) d["reason"] = why;
-            if (withSlots && owner != Entity.Null && placeable && em.HasComponent<GP.BuildingData>(up))
+            if (withSlots && owner != Entity.Null && idx != null && !module)
+            {
+                // the slots POST /extension side=auto tries, each checked against zoned lots (ExtensionSafety.cs)
+                var checks = CheckSlots(idx, owner, up);
+                if (checks.Count > 0)
+                {
+                    d["slots"] = new Dictionary<string, object> { { "total", checks.Count }, { "free", checks.Count(c => c.Hits.Count == 0) } };
+                    if (placeable)
+                        d["sides"] = checks.Where(c => !c.Slot.Label.Contains("@")).Select(c =>
+                        {
+                            var sd = new Dictionary<string, object> { { "side", c.Slot.Side }, { "pos", F2(c.Slot.Pos) }, { "demolishes", c.Hits.Count } };
+                            if (c.Hits.Count > 0) { sd["renters"] = c.Renters; sd["demolishIds"] = c.Hits.Take(12).Select(h => (object)Id(h)).ToList(); }
+                            return (object)sd;
+                        }).ToList();
+                    else if (checks[0].Hits.Count > 0) d["demolishes"] = checks[0].Hits.Count;
+                    if (why == null && AllSlotsDemolish(checks)) why = DemolishSummary(checks) + "; POST /extension refuses unless allowDemolish:true";
+                }
+            }
+            else if (withSlots && owner != Entity.Null && placeable && em.HasComponent<GP.BuildingData>(up))
                 d["sides"] = PlaceableSlots(owner, up, "auto", null, null).Where(s => !s.Label.Contains("@"))
                     .Select(s => (object)new Dictionary<string, object> { { "side", s.Side }, { "pos", F2(s.Pos) } }).ToList();
+            d["canBuild"] = why == null;
+            if (why != null) d["reason"] = why;
             return d;
         }
 
@@ -531,9 +613,10 @@ namespace ClaudeCityBridge
                     inst.Add(ud);
                 }
                 r["installed"] = inst;
-                r["offered"] = OfferedUpgrades(op).Select(kv => (object)OfferJson(owner, kv.Key, kv.Value, true)).ToList();
+                var idx = GrowableIndex();
+                r["offered"] = OfferedUpgrades(op).Select(kv => (object)OfferJson(owner, kv.Key, kv.Value, true, idx)).ToList();
                 r["combined"] = CombinedServiceStats(owner);
-                r["usage"] = "POST /extension {owner, prefab, side: auto|back|left|right|front, offset (m along the side), or x,z (snap to the nearest side), dryRun}. 'fixed' upgrades need no side.";
+                r["usage"] = "POST /extension {owner, prefab, side: auto|back|left|right|front, offset (m along the side), or x,z (snap to the nearest side), allowDemolish (default false), dryRun}. 'fixed' upgrades need no side. sides[].demolishes = zoned buildings the extension lot would remove there (auto skips those slots); canBuild=false when every slot would demolish.";
                 return r;
             }
 
@@ -541,7 +624,8 @@ namespace ClaudeCityBridge
             bool onlyBuildable = p.Q("onlyBuildable", "0") == "1" || p.Q("onlyBuildable", "") == "true";
             int limit = (int)math.clamp(p.QF("limit", 200f), 1f, 2000f);
             var list = new List<object>();
-            int total = 0;
+            int total = 0, demolishOnly = 0;
+            ObstSet growables = null;
             using (var arr = bq.ToEntityArray(Allocator.Temp))
                 foreach (var e in arr)
                 {
@@ -552,24 +636,40 @@ namespace ClaudeCityBridge
                     var name = PrefabName(op);
                     if (!string.IsNullOrEmpty(filter) && name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0) continue;
                     var buildable = new List<object>();
+                    var demolishing = new List<object>();
                     foreach (var kv in offered)
                     {
                         var up = kv.Key;
                         if (IsLocked(up)) continue;
                         if (ForbidMultiple(up) && CountInstalled(e, up) > 0) continue;
-                        buildable.Add(PrefabName(up) + " (" + UpgradeCost(up) + ")");
+                        var label = PrefabName(up) + " (" + UpgradeCost(up) + ")";
+                        if (!kv.Value && em.HasComponent<ObjTransform>(e))
+                        {
+                            // not buildable without demolition when every slot /extension would try removes zoned buildings
+                            var checks = CheckSlots(growables ?? (growables = GrowableIndex()), e, up);
+                            if (AllSlotsDemolish(checks)) { demolishing.Add(label + ": " + DemolishSummary(checks)); continue; }
+                        }
+                        buildable.Add(label);
                     }
-                    if (onlyBuildable && buildable.Count == 0) continue;
+                    if (onlyBuildable && buildable.Count == 0)
+                    {
+                        if (demolishing.Count > 0) demolishOnly++;
+                        continue;
+                    }
                     total++;
                     if (list.Count >= limit) continue;
-                    list.Add(new Dictionary<string, object>
+                    var bd = new Dictionary<string, object>
                     {
                         { "id", Id(e) }, { "prefab", name }, { "pos", F2(em.GetComponentData<ObjTransform>(e).m_Position) },
                         { "installed", InstalledUpgradeSet(e).Where(u => em.Exists(u) && em.HasComponent<GP.PrefabRef>(u)).Select(u => (object)PrefabName(em.GetComponentData<GP.PrefabRef>(u).m_Prefab)).ToList() },
                         { "buildable", buildable },
-                    });
+                    };
+                    if (demolishing.Count > 0) bd["buildableDemolishing"] = demolishing;
+                    list.Add(bd);
                 }
-            return new Dictionary<string, object> { { "count", total }, { "buildings", list }, { "hint", "GET /extensions?owner=<id> for costs, effects and side slots" } };
+            var res = new Dictionary<string, object> { { "count", total }, { "buildings", list }, { "hint", "GET /extensions?owner=<id> for costs, effects and side slots; 'buildable' only lists upgrades with at least one slot that removes no zoned building ('buildableDemolishing': every slot would, POST /extension refuses unless allowDemolish:true)" } };
+            if (demolishOnly > 0) res["skippedDemolishOnly"] = demolishOnly;
+            return res;
         }
 
         bool UpgradeDisabled(Entity owner, Entity upgrade)
@@ -590,9 +690,11 @@ namespace ClaudeCityBridge
         /// <summary>
         /// POST /extension {owner: id, prefab: name or part of it (from GET /extensions?owner=),
         /// side: auto|back|left|right|front, offset: metres along the side from its centre, or x,z (snap
-        /// to the nearest side like the mouse would), dryRun}. Fixed upgrades ignore side.
+        /// to the nearest side like the mouse would), allowDemolish (default false), dryRun}. Fixed upgrades ignore side.
         /// side=auto previews the side centres (back, left, right, front) and then their ends as dry runs
-        /// and builds the first that validates.
+        /// (slots whose lot overlaps zoned lots last) and builds the first that validates and removes no
+        /// zoned building. Results carry wouldDemolish / conflicts like /building; a build that would remove
+        /// zoned buildings is refused ("blocked") unless allowDemolish is true.
         /// </summary>
         object PlaceExtension(Args a)
         {
@@ -632,10 +734,18 @@ namespace ClaudeCityBridge
                 var side = (a.Str("side", "auto") ?? "auto").ToLowerInvariant();
                 if (side != "auto" && Array.IndexOf(SideNames, side) < 0) return new ApiError("side must be auto|back|left|right|front");
                 slots = PlaceableSlots(owner, up, side, offset, near);
+                if (slots.Count > 1)
+                {
+                    // auto: slots whose lot overlaps zoned lots are previewed last (stable order otherwise)
+                    var idx = GrowableIndex();
+                    foreach (var s in slots) s.Demolishes = SlotGrowables(idx, up, s).Count;
+                    slots = slots.Select((s, i) => new { s, i }).OrderBy(x => x.s.Demolishes > 0 ? 1 : 0).ThenBy(x => x.i).Select(x => x.s).ToList();
+                }
                 int maxTries = (int)math.clamp(a.I("maxTries", 12), 1, 12);
                 if (slots.Count > maxTries) slots = slots.GetRange(0, maxTries);
             }
             bool dry = a.B("dryRun");
+            bool allowDemolish = a.B("allowDemolish", false); // unlike /building and /road, /extension refuses demolition by default
             var info = new Dictionary<string, object>
             {
                 { "owner", Id(owner) }, { "ownerPrefab", PrefabName(op) }, { "prefab", PrefabName(up) },
@@ -644,7 +754,7 @@ namespace ClaudeCityBridge
             if (owner != e) info["resolvedFrom"] = Id(e);
             var capturedUp = up; var capturedOwner = owner;
             Func<ExtSlot, bool, ExtensionJob> make = (s, d) => new ExtensionJob { Api = this, Prefab = capturedUp, Owner = capturedOwner, Position = s.Pos, Rotation = s.Rot, DryRun = d };
-            return new ExtensionOperation(this, tool, slots, dry, make, info);
+            return new ExtensionOperation(this, tool, slots, dry, allowDemolish, make, info);
         }
     }
 }

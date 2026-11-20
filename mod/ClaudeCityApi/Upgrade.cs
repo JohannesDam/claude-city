@@ -21,10 +21,18 @@ namespace ClaudeCityBridge
     {
         public Entity Prefab;
         public List<Entity> Edges = new List<Entity>();
+        public Api Api; // optional: reports the edge ids after the apply (EdgeRenew.cs)
+        HashSet<Entity> before;
+        List<KeyValuePair<Entity, Bezier4x3>> requested;
 
         public override JobHandle Create(AgentToolSystem tool, EntityCommandBuffer ecb, JobHandle deps)
         {
             var em = tool.EntityManager;
+            if (!DryRun && Api != null)
+            {
+                try { before = Api.SnapshotEdges(); requested = Api.EdgeCurves(Edges); }
+                catch (Exception ex) { Result["trackError"] = ex.Message; }
+            }
             var rnd = new Unity.Mathematics.Random((uint)(Environment.TickCount | 1));
             int n = 0;
             foreach (var e in Edges)
@@ -43,6 +51,13 @@ namespace ClaudeCityBridge
             Result["segmentsReplaced"] = n;
             return deps;
         }
+
+        public override void AfterApply(AgentToolSystem tool)
+        {
+            if (Api == null || before == null || requested == null) return;
+            try { Api.ReportRenewedEdges(requested, before, Result); }
+            catch (Exception e) { Result["trackError"] = e.Message; }
+        }
     }
 
     public partial class Api
@@ -55,7 +70,7 @@ namespace ClaudeCityBridge
             var prefab = FindPrefab(a.Str("prefab", "Medium Road"), e => em.HasComponent<NetData>(e) && em.HasComponent<PlaceableNetData>(e));
             if (prefab == Entity.Null) return new ApiError("net prefab not found");
             if (IsLocked(prefab)) return new ApiError(PrefabName(prefab) + " is still locked");
-            var job = new ReplaceJob { Prefab = prefab, DryRun = a.B("dryRun") };
+            var job = new ReplaceJob { Prefab = prefab, DryRun = a.B("dryRun"), Api = this };
             // edges:[ids] (stale ids skipped + reported) and/or box/polyline with prefabFilter (required); same-prefab edges are skipped
             var sel = SelectEdges(a, SameLayerAs(prefab), true);
             if (sel.Error != null) return sel.Error;

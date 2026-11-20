@@ -308,7 +308,7 @@
     4052
    ],
    "owner": "builder-northeast",
-   "phase": "acquisition",
+   "phase": "building",
    "character": "open wind field downwind of the city: staggered turbines in meadow with tree belts, one curved service lane, no homes or industry",
    "tiles": [
     [
@@ -316,7 +316,7 @@
      3740
     ]
    ],
-   "gameDistrict": null
+   "gameDistrict": "Northeast Wind Fields"
   },
   {
    "name": "Port Claude",

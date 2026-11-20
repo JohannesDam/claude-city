@@ -365,6 +365,22 @@ namespace ClaudeCityBridge
             public string What;
         }
 
+        /// <summary>Base of an object placed at pos/rot: its ObjectGeometryData bounds (a circle for circular objects). False without geometry.</summary>
+        bool ObjectBase(Entity prefab, float3 position, quaternion rotation, List<float2[]> polys, List<KeyValuePair<float2, float>> circles)
+        {
+            if (!em.HasComponent<ObjectGeometryData>(prefab)) return false;
+            var g = em.GetComponentData<ObjectGeometryData>(prefab);
+            var pos = position.xz;
+            if ((g.m_Flags & GeoFlags.Circular) != 0)
+            {
+                var b = g.m_Bounds;
+                var cc = pos + math.mul(rotation, new float3((b.min.x + b.max.x) * 0.5f, 0, (b.min.z + b.max.z) * 0.5f)).xz;
+                circles.Add(new KeyValuePair<float2, float>(cc, math.max(g.m_Size.x, g.m_Size.z) * 0.5f));
+            }
+            else polys.Add(BaseCorners(pos, rotation, g.m_Bounds));
+            return true;
+        }
+
         Footprint FootprintOf(AgentToolSystem.BuildJob job)
         {
             var polys = new List<float2[]>();
@@ -374,19 +390,11 @@ namespace ClaudeCityBridge
             bool area = false;
             if (job is ObjectJob oj)
             {
-                if (em.HasComponent<ObjectGeometryData>(oj.Prefab))
-                {
-                    var g = em.GetComponentData<ObjectGeometryData>(oj.Prefab);
-                    var pos = oj.Position.xz;
-                    if ((g.m_Flags & GeoFlags.Circular) != 0)
-                    {
-                        var b = g.m_Bounds;
-                        var cc = pos + math.mul(oj.Rotation, new float3((b.min.x + b.max.x) * 0.5f, 0, (b.min.z + b.max.z) * 0.5f)).xz;
-                        circles.Add(new KeyValuePair<float2, float>(cc, math.max(g.m_Size.x, g.m_Size.z) * 0.5f));
-                    }
-                    else polys.Add(BaseCorners(pos, oj.Rotation, g.m_Bounds));
-                    what = "building lot";
-                }
+                if (ObjectBase(oj.Prefab, oj.Position, oj.Rotation, polys, circles)) what = "building lot";
+            }
+            else if (job is ExtensionJob xj)
+            {
+                if (ObjectBase(xj.Prefab, xj.Position, xj.Rotation, polys, circles)) what = "extension lot";
             }
             else if (job is NetJob nj)
             {
@@ -522,9 +530,35 @@ namespace ClaudeCityBridge
         /// <summary>Wraps a BuildOperation: snapshots the preview every frame and merges the findings into the result.</summary>
         sealed class SafeBuildOperation : IOperation
         {
+            readonly IOperation inner;
+            readonly DemolishWatch watch;
+
+            public SafeBuildOperation(Api api, AgentToolSystem.BuildJob job, IOperation inner, bool allowDemolish)
+            {
+                this.inner = inner;
+                watch = new DemolishWatch(api, job, allowDemolish);
+            }
+
+            public bool Step(out object result)
+            {
+                watch.Observe();
+                if (!inner.Step(out result)) return false;
+                if (result is ApiError || !(result is Dictionary<string, object> r)) return true;
+                try { watch.Merge(r); } catch (Exception e) { r["safetyError"] = e.GetType().Name + ": " + e.Message; }
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// What one queued build job would remove: the footprint's growable lots (computed before the tool
+        /// runs) plus the game's own preview icons (Observe() every frame while the job previews). With
+        /// allowDemolish=false a real build is switched to a dry run before the tool evaluates it, so nothing
+        /// is applied. Used by SafeBuildOperation (/building, /road, ...) and ExtensionOperation (/extension).
+        /// </summary>
+        internal sealed class DemolishWatch
+        {
             readonly Api api;
             readonly AgentToolSystem.BuildJob job;
-            readonly IOperation inner;
             readonly bool allowDemolish;
             readonly Footprint fp;
             readonly List<Entity> geometryHits;
@@ -537,9 +571,15 @@ namespace ClaudeCityBridge
             int snapshots, settled;
             string blocked;
 
-            public SafeBuildOperation(Api api, AgentToolSystem.BuildJob job, IOperation inner, bool allowDemolish)
+            /// <summary>Replaces the default note on via=geometry entries (e.g. extensions, whose preview never flags growables).</summary>
+            public string GeometryNote;
+
+            /// <summary>Growable lots under the footprint by our calculation (known before the tool runs).</summary>
+            public int GeometryHitCount => geometryHits.Count;
+
+            public DemolishWatch(Api api, AgentToolSystem.BuildJob job, bool allowDemolish)
             {
-                this.api = api; this.job = job; this.inner = inner; this.allowDemolish = allowDemolish;
+                this.api = api; this.job = job; this.allowDemolish = allowDemolish;
                 try
                 {
                     fp = api.FootprintOf(job);
@@ -555,40 +595,36 @@ namespace ClaudeCityBridge
                 }
             }
 
-            public bool Step(out object result)
+            /// <summary>Call every frame while the job runs (cheap no-op outside the preview states).</summary>
+            public void Observe()
             {
-                if (!job.Done && (job.State == 1 || job.State == 5) && job.Frames >= 4)
+                if (job.Done || !(job.State == 1 || job.State == 5) || job.Frames < 4) return;
+                try
                 {
-                    try
+                    var s = api.SnapshotPreview(items);
+                    if (s.Temps > 0)
                     {
-                        var s = api.SnapshotPreview(items);
-                        if (s.Temps > 0)
+                        last = s; snapshots++;
+                        // the tool applies once the temp count was stable for 5 frames; union what the
+                        // settled preview reported (icons are re-created when validation re-runs)
+                        if (job.StableFrames >= 2 && job.Frames >= AgentToolSystem.MinPreviewFrames / 2)
                         {
-                            last = s; snapshots++;
-                            // the tool applies once the temp count was stable for 5 frames; union what the
-                            // settled preview reported (icons are re-created when validation re-runs)
-                            if (job.StableFrames >= 2 && job.Frames >= AgentToolSystem.MinPreviewFrames / 2)
-                            {
-                                settled++;
-                                foreach (var e in s.Demolish) if (!demolish.Contains(e)) demolish.Add(e);
-                                for (int i = 0; i < s.Conflicts.Count; i++) if (conflictKeys.Add(s.ConflictKeys[i])) conflicts.Add(s.Conflicts[i]);
-                            }
-                        }
-                        if (!allowDemolish && !job.DryRun && s.Demolish.Count > 0)
-                        {
-                            job.DryRun = true; // the tool has not evaluated yet (State 1 or 5): it will clear instead of apply
-                            blocked = "the game's preview would remove " + s.Demolish.Count + " building(s)";
+                            settled++;
+                            foreach (var e in s.Demolish) if (!demolish.Contains(e)) demolish.Add(e);
+                            for (int i = 0; i < s.Conflicts.Count; i++) if (conflictKeys.Add(s.ConflictKeys[i])) conflicts.Add(s.Conflicts[i]);
                         }
                     }
-                    catch (Exception e) { Log.Warn("Safety snapshot: " + e.Message); }
+                    if (!allowDemolish && !job.DryRun && s.Demolish.Count > 0)
+                    {
+                        job.DryRun = true; // the tool has not evaluated yet (State 1 or 5): it will clear instead of apply
+                        blocked = "the game's preview would remove " + s.Demolish.Count + " building(s)";
+                    }
                 }
-                if (!inner.Step(out result)) return false;
-                if (result is ApiError || !(result is Dictionary<string, object> r)) return true;
-                try { Merge(r); } catch (Exception e) { r["safetyError"] = e.GetType().Name + ": " + e.Message; }
-                return true;
+                catch (Exception e) { Log.Warn("Safety snapshot: " + e.Message); }
             }
 
-            void Merge(Dictionary<string, object> r)
+            /// <summary>Adds wouldDemolish, conflicts, demolishCheck (and blocked / condemnedAfter) to a finished job's result.</summary>
+            public void Merge(Dictionary<string, object> r)
             {
                 bool applied = r.TryGetValue("applied", out var ap) && ap is bool b && b;
                 var geo = new HashSet<Entity>(geometryHits);
@@ -620,9 +656,9 @@ namespace ClaudeCityBridge
                     { "geometry", fp?.Set != null ? fp.What : "none" },
                 };
                 if (geometryOnly)
-                    r["wouldDemolishNote"] = preview
+                    r["wouldDemolishNote"] = GeometryNote ?? (preview
                         ? "via=geometry: the lot overlaps the new footprint by our calculation but the game's preview did not flag it (bridge/tunnel height, intersection shape or width approximation); via=preview/both is what the game removes"
-                        : "no preview was captured; entries come from the lot-overlap calculation only";
+                        : "no preview was captured; entries come from the lot-overlap calculation only");
                 if (blocked != null)
                 {
                     r["blocked"] = blocked + " (allowDemolish=false); nothing was built";

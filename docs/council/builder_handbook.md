@@ -68,10 +68,11 @@ the start of your shift; it replaces the per-round worker prompt of the old coun
 - The game silently demolishes zoned buildings under a new lot or road; the API reports them
   (`wouldDemolish`) and refuses by default - read it in every dry run.
 - Edge ids change when neighbouring roads or buildings are built: prefer box/polyline selection, or re-read
-  ids right before each call. `/roadupgrade` (Trees etc.) also renews edge ids without returning them yet.
-- KNOWN GAP (being fixed): `POST /extension` does not report or refuse demolition. A `side:"auto"` slot can
-  silently replace homes. Until the API says `wouldDemolish` for extensions: dry run, then
-  `GET /buildings?kind=all&x=&z=&radius=80` around the slot, and skip slots that would hit zoned buildings.
+  ids right before each call; placing a building beside a road renews that road's ids too. `/roadupgrade`
+  and `/upgrade` return `edgeIdsAfter` (current ids in request order) and `edgeMap` - use those for the next call.
+- `/extension` reports `wouldDemolish` and refuses (`blocked`) like `/building`; `side:"auto"` prefers slots
+  that remove nothing. `/building` results include the lot `corners`, and dry runs report `roadConnected`.
+  `/findspot` tries setbacks 0.5/2/3.5 m.
 
 ## Big buildings: find land, buy land, or make room
 

@@ -58,18 +58,23 @@ namespace ClaudeCityBridge
             var schools = CollectServices("education");
             var levels = new List<object>();
             var advice = new List<object>();
+            ObstSet growables = null; // zoned lots, built on first use (ExtensionSafety.cs)
             for (int i = 0; i < 4; i++)
             {
                 var name = EduLevels[i];
                 var mine = schools.Where(s => s.Type == name).ToList();
                 int seatsPrefab = mine.Sum(s => s.UserCap), studentsCount = mine.Sum(s => s.Users);
                 int full = mine.Count(s => s.Status.Contains("full")), nearly = mine.Count(s => s.Status.Contains("nearly full"));
-                // unbuilt, unlocked upgrades of these schools that add seats
+                // unbuilt, unlocked upgrades of these schools that add seats; an upgrade only counts when at least
+                // one slot POST /extension tries removes no zoned building
                 int extSeats = 0, extCount = 0; long extCost = 0;
+                int demoSeats = 0, demoCount = 0;
                 var extNames = new Dictionary<string, int>();
                 foreach (var s in mine)
                 {
                     var op = em.GetComponentData<GP.PrefabRef>(s.Entity).m_Prefab;
+                    int demoAdd = 0;
+                    bool found = false;
                     foreach (var kv in OfferedUpgrades(op))
                     {
                         var up = kv.Key;
@@ -77,11 +82,19 @@ namespace ClaudeCityBridge
                         if (ForbidMultiple(up) && CountInstalled(s.Entity, up) > 0) continue;
                         int add = em.GetComponentData<GP.SchoolData>(up).m_StudentCapacity;
                         if (add <= 0) continue;
+                        if (!kv.Value && em.HasComponent<Game.Objects.Transform>(s.Entity)
+                            && AllSlotsDemolish(CheckSlots(growables ?? (growables = GrowableIndex()), s.Entity, up)))
+                        {
+                            if (demoAdd == 0) demoAdd = add;
+                            continue;
+                        }
                         extSeats += add; extCount++; extCost += UpgradeCost(up);
                         var un = PrefabName(up);
                         extNames[un] = extNames.TryGetValue(un, out var c) ? c + 1 : 1;
+                        found = true;
                         break; // one suggestion per school
                     }
+                    if (!found && demoAdd > 0) { demoCount++; demoSeats += demoAdd; }
                 }
                 var d = new Dictionary<string, object>
                 {
@@ -105,6 +118,9 @@ namespace ClaudeCityBridge
                 }
                 if (extCount > 0)
                     d["extensionsPossible"] = new Dictionary<string, object> { { "count", extCount }, { "seats", extSeats }, { "cost", extCost }, { "prefabs", extNames } };
+                if (demoCount > 0)
+                    d["extensionsDemolishing"] = new Dictionary<string, object> { { "count", demoCount }, { "seats", demoSeats },
+                        { "note", "schools whose seat-adding extensions would demolish zoned buildings on every slot (not in extensionsPossible; POST /extension needs allowDemolish:true)" } };
                 levels.Add(d);
             }
             var r = new Dictionary<string, object>

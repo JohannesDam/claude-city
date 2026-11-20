@@ -38,10 +38,18 @@ namespace ClaudeCityBridge
         }
 
         public List<Item> Items = new List<Item>();
+        public Api Api; // optional: reports the edge ids after the apply (EdgeRenew.cs)
+        HashSet<Entity> before;
+        List<KeyValuePair<Entity, Bezier4x3>> requested;
 
         public override JobHandle Create(AgentToolSystem tool, EntityCommandBuffer ecb, JobHandle deps)
         {
             var em = tool.EntityManager;
+            if (!DryRun && Api != null)
+            {
+                try { before = Api.SnapshotEdges(); requested = Api.EdgeCurves(Items.Select(it => it.Edge)); }
+                catch (Exception ex) { Result["trackError"] = ex.Message; }
+            }
             int n = 0;
             foreach (var it in Items)
             {
@@ -83,6 +91,13 @@ namespace ClaudeCityBridge
             }
             Result["definitions"] = n;
             return deps;
+        }
+
+        public override void AfterApply(AgentToolSystem tool)
+        {
+            if (Api == null || before == null || requested == null) return;
+            try { Api.ReportRenewedEdges(requested, before, Result); }
+            catch (Exception e) { Result["trackError"] = e.Message; }
         }
     }
 
@@ -205,7 +220,7 @@ namespace ClaudeCityBridge
             CompositionFlags.General genBits = set.m_General | unset.m_General;
             CompositionFlags.Side sideBits = set.m_Left | set.m_Right | unset.m_Left | unset.m_Right;
 
-            var job = new NetUpgradeJob { DryRun = a.B("dryRun") };
+            var job = new NetUpgradeJob { DryRun = a.B("dryRun"), Api = this };
             var report = new List<object>();
             foreach (var e in edges)
             {

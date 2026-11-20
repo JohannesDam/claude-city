@@ -41,7 +41,7 @@ namespace ClaudeCityBridge
         }
 
         /// <summary>
-        /// GET /services?kind=garbage|deathcare|healthcare|police|fire|education|post|park|all&amp;x&amp;z&amp;radius&amp;brief=1:
+        /// GET /services?kind=garbage|deathcare|healthcare|police|fire|education|post|park|electricity|water|telecom|roads|all&amp;x&amp;z&amp;radius&amp;brief=1:
         /// per service building efficiency, vehicles in use vs usable vs capacity, storage, processing,
         /// patients/students/prisoners, a status list; totals per kind plus city-wide demand (production,
         /// waiting dispatch requests, buildings over the warning limit) and a short diagnosis.
@@ -49,9 +49,10 @@ namespace ClaudeCityBridge
         object Services(Pending p)
         {
             var kind = (p.Q("kind", "all") ?? "all").ToLowerInvariant();
-            var kinds = kind == "all" ? ServiceKinds : new[] { kind };
+            var kinds = kind == "all" ? ServiceKinds.Concat(MoreServiceKinds).ToArray() : new[] { kind };
             foreach (var k in kinds)
-                if (Array.IndexOf(ServiceKinds, k) < 0) return new ApiError("kind must be one of " + string.Join("|", ServiceKinds) + "|all");
+                if (Array.IndexOf(ServiceKinds, k) < 0 && Array.IndexOf(MoreServiceKinds, k) < 0)
+                    return new ApiError("kind must be one of " + string.Join("|", ServiceKinds.Concat(MoreServiceKinds)) + "|all");
             float x = p.QF("x", 0f), z = p.QF("z", 0f), radius = p.QF("radius", 1e7f);
             bool brief = p.Q("brief", "0") == "1" || p.Q("brief", "") == "true";
             int limit = (int)math.clamp(p.QF("limit", 300f), 1f, 2000f);
@@ -146,6 +147,7 @@ namespace ClaudeCityBridge
                     foreach (var e in Facilities<GB.Park>()) res.Add(ParkInfo(e));
                     foreach (var e in Facilities<GB.MaintenanceDepot>()) { var s = DepotInfo(e); if (s != null) res.Add(s); }
                     break;
+                default: CollectMoreServices(kind, res); break; // electricity|water|telecom|roads (Utilities.cs)
             }
             return res;
         }
@@ -545,10 +547,13 @@ namespace ClaudeCityBridge
                         d["transferRequests"] = RequestStats<MailTransferRequest>();
                         break;
                     case "park":
-                        d["maintenanceRequests"] = RequestStats<MaintenanceRequest>();
+                        // only requests for parks; road wear and damaged vehicles are under kind=roads
+                        d["maintenanceRequests"] = RequestStats<MaintenanceRequest>(r => MaintTargetKind(r) == "park");
+                        d["maintenanceRequestsByTarget"] = MaintenanceRequestsByTarget();
                         break;
                     case "education":
                         break;
+                    default: MoreServiceDemand(kind, d); break; // Utilities.cs
                 }
             }
             catch (Exception ex) { d["error"] = ex.GetType().Name + ": " + ex.Message; }
@@ -609,6 +614,7 @@ namespace ClaudeCityBridge
                     int st = g.Sum(s => s.Users), sc = g.Sum(s => s.UserCap);
                     if (sc > 0 && st >= 0.9 * sc) h.Add($"{g.Key}: {st}/{sc} seats used");
                 }
+            MoreServiceDiagnosis(kind, list, demand, h); // Utilities.cs
             if (h.Count == 0) h.Add("no obvious capacity problem");
             return h;
         }

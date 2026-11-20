@@ -84,6 +84,15 @@ namespace ClaudeCityBridge
                 case "/coverage": return RequireGame() ?? Coverage(p);
                 case "/hotspots": return RequireGame() ?? Hotspots(p);
                 case "/icontypes": return RequireGame() ?? IconTypes();
+                case "/extensions": return RequireGame() ?? Extensions(p);
+                case "/extension": return RequireGame() ?? PlaceExtension(p.Body);
+                case "/buildingaction": return RequireGame() ?? BuildingAction(p);
+                case "/education": return RequireGame() ?? Education(p);
+                case "/stuck": return RequireGame() ?? Stuck(p);
+                case "/landvalue": return RequireGame() ?? LandValue(p);
+                case "/crime": return RequireGame() ?? Crime(p);
+                case "/levels": return RequireGame() ?? Levels(p);
+                case "/signatures": return RequireGame() ?? Signatures();
                 case "/demand": return RequireGame() ?? Demand(p);
                 case "/finance": return RequireGame() ?? Finance(p);
                 case "/loan": return RequireGame() ?? LoanRequest(p);
@@ -602,6 +611,7 @@ namespace ClaudeCityBridge
         {
             var q = em.CreateEntityQuery(ComponentType.ReadOnly<PrefabData>(), ComponentType.ReadOnly<UIObjectData>());
             var res = new List<object>();
+            bool sigReset = true;
             using (var arr = q.ToEntityArray(Allocator.Temp))
             {
                 foreach (var e in arr)
@@ -622,6 +632,7 @@ namespace ClaudeCityBridge
                     if (em.HasComponent<BuildingData>(e)) { var bd = em.GetComponentData<BuildingData>(e); d["lot"] = new List<object> { bd.m_LotSize.x, bd.m_LotSize.y }; }
                     if (em.HasComponent<ServiceObjectData>(e)) d["service"] = PrefabName(em.GetComponentData<ServiceObjectData>(e).m_Service);
                     if (em.HasComponent<ZoneData>(e)) d["areaType"] = em.GetComponentData<ZoneData>(e).m_AreaType.ToString();
+                    if (cat == "signature") { AddSignaturePlaced(d, e, sigReset); sigReset = false; }
                     res.Add(d);
                 }
             }

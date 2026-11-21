@@ -19,7 +19,7 @@ MODE = sys.argv[1] if len(sys.argv) > 1 else "road-dry"
 LOG = r"C:\soft\cityskyline\logs\council\builder-northeast_geothermal.json"
 TILE = [312, 4052, 935, 4674]
 ROAD = [[590, 3990], [590, 4460]]
-PLACE = {"prefab": "GeothermalPowerPlant01", "near": [740, 4260], "within": [312, 3428, 935, 4674], "radius": 400,
+PLACE = {"prefab": "GeothermalPowerPlant01", "near": [530, 4224], "within": [312, 3428, 935, 4674], "radius": 400,
          "maxHouseholds": 0, "maxCompanies": 0}
 
 
@@ -77,3 +77,17 @@ elif MODE == "check":
     for b in s.get("buildings", []):
         if b.get("id") in (pid, d.get("transformer")):
             print(json.dumps(b)[:500])
+
+# 2nd try (same day): the plant needs groundwater under it ('No Groundwater' east of x 590). The polluted
+# deposit under NE utilities / Wind Fields reaches x ~670 at z 4050-4250, so Geo Lane moves to x=680 and the
+# plant goes on its WEST side (lot x ~392..672).
+if MODE == "move-lane":
+    with paused(WHO):
+        r = post("/bulldoze", {"box": [580, 3995, 600, 4465], "nets": "Small Road"})
+        print("bulldoze", r.get("applied"), r.get("edgeCount"), json.dumps(r.get("impact")))
+        r = post("/road", {"prefab": "Small Road", "points": [[680, 3976], [680, 4460]]})
+        ids = r.get("newEdgeIds") or []
+        print("lane", json.dumps(short(r)), ids)
+        log("road", ids)
+        for i in range(0, len(ids), 4):
+            post("/roadupgrade", {"edges": ids[i:i + 4], "upgrade": "Trees", "side": "both"})

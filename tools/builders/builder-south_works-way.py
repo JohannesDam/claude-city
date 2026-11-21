@@ -37,13 +37,19 @@ if stage == "build":
                                       "upgrade": up, "side": "both"})
             print(up, u.get("applied"), u.get("errors"), u.get("edgeIdsAfter"))
 
+def edges_by_ends(pts, tol=6):
+    """current Medium Road edges whose both ends lie within tol of the course (smooth curve passes through pts)"""
+    import math
+    segs = get("/nets", x=-1730, z=-1500, radius=360, filter="Medium Road", limit=500)["segments"]
+
+    def near(p):
+        return any(math.hypot(p[0] - a[0], p[1] - a[1]) <= tol for a in pts)
+    return [s["id"] for s in segs if near(s["start"]) and near(s["end"])]
+
+
 if stage == "zone":
     with paused(WHO):
-        u = post("/roadupgrade", {"polyline": WEST + EAST[1:], "tolerance": 14, "prefabFilter": "Medium Road",
-                                  "upgrade": "Trees", "side": "both", "dryRun": True})
-        edges = u.get("edgeIdsAfter") or []
-        west = [e for e in edges if e in (post("/roadupgrade", {"polyline": WEST, "tolerance": 14, "prefabFilter": "Medium Road", "upgrade": "Trees", "side": "both", "dryRun": True}).get("edgeIdsAfter") or [])]
-        east = [e for e in edges if e not in west]
+        west, east = edges_by_ends(WEST), edges_by_ends(EAST)
         print("edges west", west, "east", east)
         for name, es, dep in (("west", west, 5), ("east", east, 6)):
             z = zone("Office High", mode="road", edges=es, depth=dep, side="both", overwrite=False)

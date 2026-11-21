@@ -216,6 +216,10 @@ Write longer builds as scripts in `tools/builders/<you>_<item>.py` and run them 
   specialized-industry work area (corners within 300-400 m of the building);
   `post("/area", {"prefab":"district", "name":.., "points":[...]})` creates a named district (corners ~10 m
   inside owned tile edges, else "Exceeds City Limits").
+- Extractor hubs ("... Area Placeholder"): /building and /place now attach the extractor building like the vanilla
+  tool (result `attachment`, `extractorBuilding`); before 2033-01 hubs were placed bare and never got a company.
+  `GET /areas?kind=extractor` shows `ownerExtractorBuilding` and `ownerProblem`; repair script:
+  `tools/builders/conductor_extractor_repair.py`.
 - Results: applied, cost, errors, problems ("Overlap Existing", "Exceeds City Limits", "Invalid Shape"),
   conflicts (the entity behind an overlap) and wouldDemolish. `cc.post` sends `allowDemolish=False` by default.
 

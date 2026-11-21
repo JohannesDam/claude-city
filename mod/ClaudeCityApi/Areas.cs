@@ -432,6 +432,8 @@ namespace ClaudeCityBridge
                         var r = em.GetComponentData<BuildingPropertyData>(op).m_AllowedManufactured;
                         if (r != Game.Economy.Resource.NoResource) d["ownerProduces"] = r.ToString();
                     }
+                    if (em.HasComponent<PlaceholderBuildingData>(op)) // extractor hub: angle, attached extractor building, company (ExtractorAttachment.cs)
+                        foreach (var kv in ExtractorHubStatus(o)) d["owner" + char.ToUpperInvariant(kv.Key[0]) + kv.Key.Substring(1)] = kv.Value;
                 }
             }
             if (kind == "district")

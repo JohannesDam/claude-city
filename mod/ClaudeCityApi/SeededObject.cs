@@ -63,6 +63,20 @@ namespace ClaudeCityBridge
             object boxed = default(RandomSeed); // m_Seed is private
             SeedField?.SetValue(boxed, Seed);
             var seed = SeedField != null ? (RandomSeed)boxed : RandomSeed.Next();
+            // extractor hubs: the building the vanilla ObjectToolSystem attaches (FindAttachmentBuildingJob), see ExtractorAttachment.cs
+            var em = tool.EntityManager;
+            if (em.HasComponent<Game.Prefabs.PlaceholderBuildingData>(Prefab))
+            {
+                if (ExtractorAttachment.TryPick(em, Prefab, seed, out var ad, out var note))
+                {
+                    att.Value = ad;
+                    Result["attachment"] = new System.Collections.Generic.Dictionary<string, object>
+                    {
+                        { "prefab", Util.PrefabName(tool.World, ad.m_Entity) }, { "offset", Math.Round(ad.m_Offset.z, 1) },
+                    };
+                }
+                else Result["attachmentWarning"] = note ?? "no attachment building found";
+            }
             // the same arguments as AgentToolSystem.CreateObjectDefinitions, except the seed
             var args = new object[]
             {

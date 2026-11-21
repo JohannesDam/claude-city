@@ -323,6 +323,7 @@ namespace ClaudeCityBridge
             if (best == Entity.Null) { r["placedId"] = null; return r; }
             r["placedId"] = Id(best);
             if (em.HasComponent<Building>(best)) r["roadConnected"] = em.GetComponentData<Building>(best).m_RoadEdge != Entity.Null;
+            if (em.HasComponent<PlaceholderBuildingData>(prefab)) foreach (var kv in ExtractorHubStatus(best)) r[kv.Key] = kv.Value; // extractor hub: attached building
             AddRoadsideInfo(best, r);
             return r;
         }

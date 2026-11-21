@@ -8,7 +8,11 @@ Cap 600 households per sub-phase (West Gate's zoning is in: ~2,000 hh, plus Nort
 2c: "Crescent Loop" - a Small Road with Trees from Crescent Way's nodes (-3113.5,-683.5) and (-2966.5,-683.5)
     north around an apex at z=-612, replacing the north row. Mixed on Crescent Way's north side, Medium on the
     loop, a pocket park; the shelter on the spine stays.
-Usage: python -I builders/builder-west_crescent-green.py 2b|2c [dry]
+2d: "Crescent Green" east of the clinic - the z=-760 Small Road segment x -3039..-2900 is replaced by "Green
+    Crescent", a Small Road with Trees dipping to z=-805; the freed land between it and Crescent Way holds the green
+    (CityPark03), ElementarySchool03 with Extension Floors and a Playground02, and the rest is zoned High
+    (High demand 100). Removing the segment takes the 7 Medium buildings that front it (~385 hh).
+Usage: python -I builders/builder-west_crescent-green.py 2b|2c|2d [dry]
 """
 import json
 import math
@@ -170,5 +174,63 @@ def stage_2c():
     print(json.dumps(out))
 
 
+GREEN_CRESCENT = [[-3039, -760], [-2970, -805], [-2900, -760]]
+LENS = [-3036, -800, -2904, -695]
+
+
+def place1(prefab, near, max_hh=0):
+    r = post("/place", {"prefab": prefab, "near": near, "within": LENS, "radius": 120, "maxHouseholds": max_hh,
+                        "maxCompanies": 0, "all": True}, timeout=300)
+    ch = r.get("chosen") or {}
+    print(f"  {prefab}: applied {r.get('applied')} at ({ch.get('x')}, {ch.get('z')}) demolition {ch.get('demolition')} {r.get('error') or ''}", flush=True)
+    if not r.get("applied"):
+        return None
+    got = [b for b in get("/buildings", kind="service", x=ch["x"], z=ch["z"], radius=6).get("buildings") or [] if b["prefab"] == prefab]
+    return got[0]["id"] if got else None
+
+
+def stage_2d():
+    out = {}
+    with paused(WHO):
+        d = post("/bulldoze", {"edges": ["1742034:83"], "dryRun": True})
+        imp = d.get("impact") or {}
+        ids = [b["id"] for b in imp.get("buildingSamples") or []]
+        zb = [x for x in (post("/bulldoze", {"ids": ids, "dryRun": True}).get("buildings") or {}).get("list") or []] if False else None
+        cost = demolition_cost(imp.get("buildingSamples"))
+        print("2d street removal impact:", imp.get("buildingsFrontingDeletedEdges"), cost, flush=True)
+        if DRY or imp.get("buildingsFrontingDeletedEdges", 99) > 8 or cost.get("households", 0) > CAP:
+            print("STOP (dry run or over the cap)", flush=True)
+            return
+        r = post("/bulldoze", {"ids": ids})
+        print("fronting buildings removed:", short(r, ("applied", "errors")), flush=True)
+        r = post("/bulldoze", {"edges": ["1742034:83"]})
+        print("z=-760 east segment removed:", short(r, ("applied", "errors", "edgeCount")), flush=True)
+        log("SWQ 2d: z=-760 east segment and its 7 fronting buildings (Crescent Green)", imp.get("buildingSamples"))
+        rd = post("/road", {"prefab": "Small Road", "points": GREEN_CRESCENT, "curve": "smooth", "allowDemolish": False})
+        print("Green Crescent:", short(rd, ("applied", "cost", "errors", "problems")), flush=True)
+        if not rd.get("applied"):
+            rf = post("/roadfit", {"prefab": "Small Road", "points": GREEN_CRESCENT, "fit": {"tolerance": 20, "minRadius": 50, "allowDemolish": False}}, timeout=300)
+            print("Green Crescent via roadfit:", rf.get("applied"), (rf.get("chosen") or {}).get("variant"), flush=True)
+        time.sleep(1)
+        t = post("/roadupgrade", {"polyline": GREEN_CRESCENT, "tolerance": 12, "prefabFilter": "Small Road", "upgrade": "Trees", "side": "both"})
+        print("  Trees:", short(t, ("applied", "cost", "errors")), flush=True)
+        out["green"] = place1("CityPark03", [-2965, -730])
+        out["school"] = place1("ElementarySchool03", [-3015, -745])
+        if out["school"]:
+            e = post("/extension", {"owner": out["school"], "prefab": "ElementarySchool03 Extension Floors", "side": "auto"}, timeout=120)
+            print("  school floors:", short(e, ("applied", "errors", "cost")), flush=True)
+        out["playground"] = place1("Playground02", [-2930, -770])
+        cells = 0
+        for s in edges_on(GREEN_CRESCENT, "Small Road") + [x for x in edges_on(CRESCENT_WAY, "Medium Road")
+                                                           if (x["start"][0] + x["end"][0]) / 2 > -3040]:
+            side = "both" if s["prefab"] == "Small Road" else side_of(s, -3040, -900, True)
+            z = zone("NA Residential High", mode="road", edges=[s["id"]], depth=4, side=side, overwrite=False)
+            cells += z.get("cellsChanged") or 0
+        z = zone("NA Residential High", mode="rect", points=[[LENS[0], LENS[1]], [LENS[2], LENS[3]]], overwrite=False)
+        cells += z.get("cellsChanged") or 0
+        print("High cells:", cells, "~", cells * 4, "hh", flush=True)
+    print(json.dumps(out))
+
+
 if __name__ == "__main__":
-    {"2b": stage_2b, "2c": stage_2c}[sys.argv[1]]()
+    {"2b": stage_2b, "2c": stage_2c, "2d": stage_2d}[sys.argv[1]]()

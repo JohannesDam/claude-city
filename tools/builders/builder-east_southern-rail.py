@@ -145,3 +145,30 @@ elif stage == "build":
                 r = r.get("result") or r
             show(nm, r)
             print("   ", json.dumps(r.get("snapping"))[:300])
+
+# ---------------------------------------------------------------- fix: the first branch left the mainline at 83 deg
+# (roadfit's moveT variant ignored startDir): replace it by an S-curve tangent to the mainline (R ~220/250) that
+# descends straight into the tunnel node 1595154:39 (-1930,-2160,-15).
+OLD_BRANCH = ["693817:303", "960715:47", "1138811:45", "1618313:61", "1622391:251", "1626032:31", "1630880:37",
+              "1631094:81"]
+S_CURVE = [
+    {"start": [-2542, -2018, 0], "control": [-2412, -1901, 0], "end": [-2269, -2001, 0]},
+    {"control": [-2188, -2058, -4.2], "end": [-2107, -2115, -8.4]},
+    {"control": [-2042, -2160, -12], "end": [-1963, -2160, -15]},
+    {"control": [-1946.5, -2160, -15], "end": [-1930, -2160, -15]},
+]
+
+if stage == "fix-branch":
+    dry = post("/bulldoze", {"edges": OLD_BRANCH, "dryRun": True})
+    print("bulldoze dry", json.dumps({k: dry.get(k) for k in ("edgeCount", "errors", "impact")})[:400])
+    if len(sys.argv) > 2 and sys.argv[2] == "go":
+        with paused(WHO):
+            b = post("/bulldoze", {"edges": OLD_BRANCH})
+            print("bulldoze", json.dumps({k: b.get(k) for k in ("applied", "edgeCount", "errors")}))
+            d = post("/road", {"prefab": TRACK, "segments": S_CURVE, "dryRun": True})
+            show("s dry", d)
+            print("   ", (d.get("geometry") or {}).get("minRadius"), json.dumps(d.get("snapping"))[:300])
+            if d.get("errors") == 0:
+                r = post("/road", {"prefab": TRACK, "segments": S_CURVE})
+                show("s-curve", r)
+                log("s_curve", {k: r.get(k) for k in ("applied", "cost", "newEdgeIds")})

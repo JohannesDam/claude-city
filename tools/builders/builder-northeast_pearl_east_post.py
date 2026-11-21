@@ -63,3 +63,15 @@ elif MODE == "check":
     d = json.load(open(LOG))
     ids = [v["placedId"] for v in d.values() if isinstance(v, dict) and v.get("placedId")]
     print("access", access_check(ids))
+
+# Fix (same day): the post office's driveway (1258.7,2098.1) is at the west front corner, beyond the stub's
+# dead end (1290,2095); extend the stub 64 m along the lot front (direction of the lot front line).
+if MODE == "stub":
+    with paused(WHO):
+        r = post("/road", {"prefab": "Small Road", "points": [[1290, 2095], [1228, 2076]]})
+        print("stub", json.dumps({k: r.get(k) for k in ("applied", "cost", "errors", "newEdgeIds")}))
+        log("stub", {k: r.get(k) for k in ("applied", "cost", "newEdgeIds")})
+        ids = r.get("newEdgeIds") or []
+        if ids:
+            t = post("/roadupgrade", {"edges": ids, "upgrade": "Trees", "side": "both"})
+            print("trees", t.get("applied"))

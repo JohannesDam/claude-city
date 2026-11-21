@@ -71,3 +71,13 @@ elif MODE == "check":
     from collections import Counter
     print(len(inbox), Counter(b["prefab"].split("_L")[0] for b in inbox))
     print("access", access_check([b["id"] for b in inbox]))
+
+# Stop square at the T1 stop (z~2765): PocketPark01 on the west side of the avenue, BicycleParkingArea01 east.
+if MODE == "square":
+    with paused(WHO):
+        for pf, near in (("PocketPark01", [-1925.5, 2765]), ("BicycleParkingArea01", [-1893, 2765])):
+            r = post("/place", {"prefab": pf, "near": near, "within": [-2125, 2722, -1695, 2816], "radius": 40,
+                                "maxHouseholds": 0, "maxCompanies": 0}, timeout=300)
+            c = r.get("chosen") or {}
+            print(pf, r.get("placedId"), c.get("x"), c.get("z"), r.get("error"))
+            log("square_" + pf, {"placedId": r.get("placedId"), "pos": [c.get("x"), c.get("z")]})

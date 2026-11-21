@@ -81,3 +81,41 @@ if MODE == "square":
             c = r.get("chosen") or {}
             print(pf, r.get("placedId"), c.get("x"), c.get("z"), r.get("error"))
             log("square_" + pf, {"placedId": r.get("placedId"), "pos": [c.get("x"), c.get("z")]})
+
+# Sub-phase 1b (2033-01-10, after 1a regrew in about a game day: 15 High, 12 Medium, 5 Mixed, 2 LowRent):
+# the block between the z=2600 and z=2710 streets (39 homes). Edges all run west: south side of z=2710 =
+# "left", north side of z=2600 = "right". No Medium 'Station Walk': upgrading z=2710 would clear 1a's new
+# buildings, and z=2600 fronts Cemetery02 + FireHouse01 on its south side.
+PLAN_1B = [  # z=2710 edges were merged after 1a (re-read 2033-01-10)
+    ("NA Residential Mixed", ["2584092:19", "2584093:19"], "left"),
+    ("NA Residential Medium", ["364418:3", "364296:3"], "left"),
+    ("NA Residential High", ["612342:15"], "right"),
+    ("Residential LowRent", ["528411:21"], "right"),
+    ("NA Residential Medium", ["352978:11", "353200:13"], "right"),
+]
+BOX_1B = [-2125, 2605, -1695, 2706]
+if MODE in ("1b-dry", "1b"):
+    def zone_1b(dry):
+        out = []
+        for zname, edges, side in PLAN_1B:
+            r = post("/zone", {"zone": zname, "mode": "road", "edges": edges, "depth": 6, "side": side,
+                               "overwrite": True, "allowDemolish": True, "dryRun": dry})
+            o = {k: r.get(k) for k in ("applied", "cellsChanged", "occupiedCellsRezoned", "cellsFromZone", "errors", "error")}
+            print(zname, edges, side, json.dumps(o), flush=True)
+            out.append(o)
+        return out
+    if MODE == "1b-dry":
+        zone_1b(True)
+    else:
+        with paused(WHO):
+            log("zone_1b", zone_1b(False))
+            ids = [e for _, edges, _ in PLAN_1B for e in edges]
+            for i in range(0, len(ids), 4):
+                t = post("/roadupgrade", {"edges": ids[i:i + 4], "upgrade": "Trees", "side": "both"})
+                print("trees", t.get("applied"), t.get("errors"))
+if MODE == "check-1b":
+    from collections import Counter
+    hh = get("/buildings", kind="all", x=-1910, z=2655, radius=230)
+    inbox = [b for b in hh.get("buildings", []) if BOX_1B[0] <= b["pos"][0] <= BOX_1B[2] and BOX_1B[1] <= b["pos"][1] <= BOX_1B[3]]
+    print(len(inbox), Counter(b["prefab"].split("_L")[0] for b in inbox))
+    print("access", access_check([b["id"] for b in inbox]))

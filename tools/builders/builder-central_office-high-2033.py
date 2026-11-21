@@ -8,7 +8,11 @@ Stage lane: "Highway Lane", a curved Small Road cul-de-sac (Trees) from the x=-9
 into the free land between the highway and the Lakeshore homes (x -1080..-935, z 1620..1775), Office High on both
 sides (highway noise: offices, not homes). Removes 2 low homes at the junction.
 
-usage: python -I builders/builder-central_office-high-2033.py depot-road|lane [dry]
+Stage waterfront: the two unzoned blocks between the z=900 and z=1010 streets in Waterfront: Office High west of
+x=-900 (next to the highway gate), Residential Medium east of it (lake side, Waterfront homes); Trees on the
+frontage streets. No overwrite.
+
+usage: python -I builders/builder-central_office-high-2033.py depot-road|lane|waterfront [dry]
 """
 import json
 import sys
@@ -51,3 +55,13 @@ if STAGE == "lane":
         print("trees", u.get("applied"), u.get("cost"))
         z = post("/zone", {"zone": "Office High", "mode": "road", "edges": ids, "depth": 6, "side": "both"})
         print("zone", json.dumps({k: z.get(k) for k in ("applied", "cellsChanged", "cellsFromZone", "occupiedCellsRezoned")}))
+
+if STAGE == "waterfront":
+    with paused(WHO):
+        for zn, rect in (("Office High", [[-1056, 904], [-904, 1006]]), ("NA Residential Medium", [[-896, 904], [-722, 1006]])):
+            z = post("/zone", {"zone": zn, "mode": "rect", "points": rect, "dryRun": DRY})
+            print(zn, json.dumps({k: z.get(k) for k in ("applied", "cellsChanged", "cellsFromZone", "occupiedCellsRezoned")}))
+        for line in ([[-1054, 900], [-720, 900]], [[-1070, 1010], [-720, 1010]], [[-900, 900], [-900, 1010]]):
+            u = post("/roadupgrade", {"polyline": line, "tolerance": 6, "prefabFilter": "Small Road", "upgrade": "Trees",
+                                      "side": "both", "dryRun": DRY})
+            print("trees", line, u.get("applied"), u.get("cost"), u.get("errors"))

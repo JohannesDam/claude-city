@@ -116,3 +116,13 @@ if MODE == "hv":
                            "connectTo": {"start": d["plant"]["placedId"], "end": d["transformer"]}})
         print(json.dumps({k: r.get(k) for k in ("applied", "errors", "cost", "newEdgeIds")}))
         log("hv", {k: r.get(k) for k in ("applied", "cost", "newEdgeIds")})
+
+# Second HV line: from the plant's line node (360,4060) south-west (inside owned land, z <= 4035 west of
+# x 312) to the incinerator 379435:55's HV point (-116.7,3631.2), joining the NE utilities HV island and its
+# TransformerStation02 419438:257 (-249,3431) nearer the city.
+HV2_PTS = [[360, 4060], [330, 4030], [250, 4035], [100, 4035], [-20, 3960], [-45, 3760], [-116.7, 3631.2]]
+if MODE == "hv2":
+    with paused(WHO):
+        r = post("/road", {"prefab": "High-voltage Line", "points": HV2_PTS, "connectTo": {"end": "379435:55"}})
+        print(json.dumps({k: r.get(k) for k in ("applied", "errors", "cost", "newEdgeIds")}))
+        log("hv2", {k: r.get(k) for k in ("applied", "cost", "newEdgeIds")})

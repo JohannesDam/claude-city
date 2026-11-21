@@ -127,3 +127,22 @@ above that plus one month of surplus; new upkeep at most half of the monthly sur
   Cash piled up ($272M) and the city kept growing as low-density grids.
 - v3 (2026-11-20), continuous: the shape described here, with an advisory board, long-lived district builders, a
   troubleshooter and the busy-tone lock.
+
+## What the first night taught (2026-11-20/21, ~145k to ~312k residents)
+
+- **Builders fill up after 3-5 checkpoints.** Each one writes a full handover note
+  (`logs/council/handover/<builder>.md`) and a fresh builder continues from it. Handover-and-restart worked every
+  time; the note is the builder's memory, so it must hold ids, open steps, reserved land and API lessons.
+- **The lock saturates at about six writers** (80-85% busy, 10-15 s average wait). More builders add waiting and
+  tokens, not throughput. Two changes helped most: dry runs no longer pause the simulation (only real changes do),
+  and `POST /place` / `POST /roadfit` replace probe loops of 5-15 dry runs with one server-side call.
+- **The simulation needs time too.** While builders hold the lock the game stands still. During a three-hour pause
+  of all agents the city ran a full game year and grew by 80k residents into the land and services built before.
+  Building and growing alternate; neither should starve the other.
+- **Ask the builders.** Asking every builder "how smooth is it, what costs you retries" in five lines produced the
+  best interface improvements of the night.
+- **Interface bugs hide behind game symptoms.** "No Inputs" turned out to be (1) no cargo routes, so no freight
+  train or ship ever ran, and (2) extractor hubs placed without their attached extractor building, so no
+  extractor company ever came. Both were found by reading the game's code, not by building more.
+- **Economic levers move fast.** The office tax (10% -> 7% -> 4%) swung office demand from 0 to 100 and back once
+  the zoned land filled; zoning must follow demand, not a plan.

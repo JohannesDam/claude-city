@@ -486,7 +486,7 @@
    "phase": "building",
    "character": "the city's second gateway: a curved tree-lined Southern Parkway from the SE outside highway to the South gateway, Claude International Airport, a lakefront hotel and office strip, and logistics/ore works behind tree belts - all downwind/away from homes",
    "tiles": [],
-   "notes": "in-game district id changes with every redraw (redraw after each tile purchase: delete + draw); owns tile (0,-1870) for the southern leg (inside East Bank bbox); tile (2493,-1870) kept free for the Southern Rail cargo terminal"
+   "notes": "in-game district id changes with every redraw (last 172007:413); owns tile (0,-1870) and the rail tiles (623,-1870),(1247,-1870); CargoTrainTerminal02 2549899:55 at (1256,-1743) with cargo routes to both rail connections; tile (2493,-1870) no longer reserved"
   },
   {
    "name": "Southwest Business Park",

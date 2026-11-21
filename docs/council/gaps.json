@@ -823,5 +823,32 @@
   "reported_by": "builder-central",
   "status": "open",
   "added": "2026-11-21"
+ },
+ {
+  "rank": 80,
+  "domain": "Build",
+  "feature": "/roadfit near-right-angle branches",
+  "why_it_matters": "/roadfit with startDir can still build a near-right-angle T (moveT variant): a rail branch left the mainline at 83 degrees.",
+  "reported_by": "builder-east",
+  "status": "open",
+  "added": "2026-11-21"
+ },
+ {
+  "rank": 81,
+  "domain": "Transit",
+  "feature": "Airport train track end",
+  "why_it_matters": "/road connectTo refuses the airport's train track end node ('not a building connection point'); plain track ends don't snap to it.",
+  "reported_by": "builder-east",
+  "status": "open",
+  "added": "2026-11-21"
+ },
+ {
+  "rank": 82,
+  "domain": "Build",
+  "feature": "Long-span bridge segments",
+  "why_it_matters": "TrussArchBridge01 gives 'Short Distance' unless each segment is ~300 m or longer.",
+  "reported_by": "builder-east",
+  "status": "open",
+  "added": "2026-11-21"
  }
 ]

@@ -20,19 +20,6 @@ PARKS = [("CityPark05", [-3110, 2545]), ("ChirperPark01", [-3225, 2665]), ("Pock
          ("PocketPark08", [-3280, 2715])]
 
 
-def lane_edges():
-    out = []
-    for s in get("/nets", x=-3160, z=2580, radius=200, filter="Small Road").get("segments") or []:
-        (sx, sz), (ex, ez) = s["start"], s["end"]
-        mx, mz = (sx + ex) / 2, (sz + ez) / 2
-        # the lane runs NW along x + z ~ -550..-610 (bearing -0.74, 0.68 offset); keep segments near that band
-        if -3300 < mx < -3020 and 2420 < mz < 2745 and abs((mx + 3026) * 0.68 + (mz - 2416) * 0.74 - 0) < 400:
-            d = abs((mx - (-3051)) * 0.74 + (mz - 2494) * 0.68 - ((-3167 + 3051) * 0.74 + (2620 - 2494) * 0.68) * 0)
-            if d < 60:
-                out.append(s)
-    return out
-
-
 def main():
     body = {"prefab": "Small Road", "points": LANE, "fit": {"tolerance": 10, "minRadius": 80}}
     d = post("/roadfit", {**body, "dryRun": True})

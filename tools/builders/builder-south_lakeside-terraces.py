@@ -22,7 +22,7 @@ WHO = "builder-south"
 MODE = sys.argv[1] if len(sys.argv) > 1 else "dry"
 
 ENTRANCE = [[925, -877], [922, -950]]
-CRESCENT = [[922, -950], [912, -1080], [900, -1200], [870, -1310], [805, -1380], [715, -1392], [655, -1355]]
+CRESCENT = [[922, -950], [921, -1090], [905, -1210], [870, -1315], [805, -1380], [715, -1392], [655, -1355]]
 WALK_START = [655, -1355]
 WALK_MID = [[668, -1282], [722, -1232], [800, -1212]]
 CENTRE = (790, -1300)          # inside the loop
@@ -68,7 +68,7 @@ def stage_roads(dry):
 
 def stage_walk(dry):
     # end on the crescent near (900,-1205): roadfit slides the junction along the edge if needed
-    body = {"prefab": "Small Road", "points": [WALK_START] + WALK_MID + [[900, -1205]], "curve": "smooth",
+    body = {"prefab": "Small Road", "points": [WALK_START] + WALK_MID + [[905, -1210]], "curve": "smooth",
             "fit": {"tolerance": 30, "minRadius": 40}, "dryRun": dry}
     r = post("/roadfit", body)
     print("walk", json.dumps(short(r, keys=("applied", "cost", "errors", "problems", "error", "wouldDemolish",
@@ -121,7 +121,7 @@ def stage_zone(dry):
         mz = (e["start"][1] + e["end"][1]) / 2
         out, inn = outer_side(e), inner_side(e)
         if mx > 860:
-            zone_edges("EU Residential Mixed", [e["id"]], out, 3, dry)
+            zone_edges("EU Residential Mixed", [e["id"]], out, 2, dry)
         elif mx < 720:
             zone_edges("Residential LowRent", [e["id"]], out, 4, dry)
         else:

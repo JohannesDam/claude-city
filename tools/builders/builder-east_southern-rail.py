@@ -172,3 +172,16 @@ if stage == "fix-branch":
                 r = post("/road", {"prefab": TRACK, "segments": S_CURVE})
                 show("s-curve", r)
                 log("s_curve", {k: r.get(k) for k in ("applied", "cost", "newEdgeIds")})
+
+# ---------------------------------------------------------------- cargo routes for CargoTrainTerminal02
+ROUTES = [("2572963:5", "435072:1", "#795548"), ("2572964:5", "435073:1", "#5D4037")]
+if stage == "route":
+    out = []
+    with paused(WHO):
+        for stop, oc, color in ROUTES:
+            r = post("/line", {"type": "train", "cargo": True, "stops": [stop, oc], "color": color}, timeout=300)
+            line = r.get("line") or {}
+            print(stop, oc, json.dumps({k: r.get(k) for k in ("applied", "error", "lineId")}), line.get("lineId") or line.get("id"),
+                  json.dumps(r.get("pathCheck"))[:200])
+            out.append({"stop": stop, "oc": oc, "line": line.get("lineId") or line.get("id") or r.get("lineId")})
+    log("routes", out)

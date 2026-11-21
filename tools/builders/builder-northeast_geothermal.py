@@ -91,3 +91,28 @@ if MODE == "move-lane":
         log("road", ids)
         for i in range(0, len(ids), 4):
             post("/roadupgrade", {"edges": ids[i:i + 4], "upgrade": "Trees", "side": "both"})
+
+# Grid tie-in: TransformerStation02 on the north side of the wind-field loop lane (428,4008), just south of the
+# plant's HV point (391.5,4072.4); then a High-voltage Line plant -> transformer with connectTo.
+if MODE == "transformer":
+    with paused(WHO):
+        r = post("/place", {"prefab": "TransformerStation02", "near": [430, 3995], "within": [312, 3428, 935, 4674],
+                            "radius": 150, "maxHouseholds": 0, "maxCompanies": 0}, timeout=300)
+        print(r.get("placedId"), r.get("error"))
+        log("transformer", r.get("placedId"))
+if MODE == "points":
+    d = json.load(open(LOG))
+    s = get("/services", kind="electricity")["kinds"]["electricity"]
+    for b in s.get("buildings", []):
+        if b.get("id") in (d["plant"]["placedId"], d.get("transformer")):
+            print(b["id"], b["prefab"], json.dumps((b.get("grid") or {}).get("connectionPoints")))
+
+# HV line: from the plant's HV point west round its lot corner to the transformer's HV point (426.4,4023.8).
+HV_PTS = [[391.5, 4072.4], [360, 4060], [400, 4020], [426.4, 4023.8]]
+if MODE == "hv":
+    d = json.load(open(LOG))
+    with paused(WHO):
+        r = post("/road", {"prefab": "High-voltage Line", "points": HV_PTS,
+                           "connectTo": {"start": d["plant"]["placedId"], "end": d["transformer"]}})
+        print(json.dumps({k: r.get(k) for k in ("applied", "errors", "cost", "newEdgeIds")}))
+        log("hv", {k: r.get(k) for k in ("applied", "cost", "newEdgeIds")})

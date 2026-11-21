@@ -105,20 +105,24 @@ elif stage == "terminal":
 
 # ---------------------------------------------------------------- east: river -> terminal (2549899:55)
 # terminal tracks: north platform track ends (1115.6,-1730.5)/(1395.6,-1730.5), south (1115.6,-1776.5)/(1395.6,-1776.5)
-EAST_MAIN = [[-110, Z], [200, -2120], [550, -1930], [850, -1780], [985, -1753]]
-SPLIT_N = [[985, -1753], [1050, -1736], [1115.6, -1730.5]]
-SPLIT_S = [[985, -1753], [1050, -1771], [1115.6, -1776.5]]
+EAST_MAIN = [[-110, Z], [200, -2120], [550, -1930], [850, -1768], [940, -1753], [985, -1753]]
+SPLIT_N = {"prefab": TRACK, "start": [985, -1753], "end": [1115.6, -1730.5], "startDir": [1, 0], "endDir": [1, 0],
+           "fit": {"tolerance": 5, "minRadius": 150}}
+SPLIT_S = {"prefab": TRACK, "start": [985, -1753], "end": [1115.6, -1776.5], "startDir": [1, 0], "endDir": [1, 0],
+           "fit": {"tolerance": 5, "minRadius": 150}}
 
 
 def east_parts():
-    return [("east main", {"prefab": TRACK, "points": EAST_MAIN, "curve": "smooth"}),
-            ("split N", {"prefab": TRACK, "points": SPLIT_N, "curve": "smooth"}),
-            ("split S", {"prefab": TRACK, "points": SPLIT_S, "curve": "smooth"})]
+    return [("east main", "/road", {"prefab": TRACK, "points": EAST_MAIN, "curve": "smooth"}),
+            ("split N", "/roadfit", SPLIT_N), ("split S", "/roadfit", SPLIT_S)]
 
 
 if stage == "dry-east":
-    for nm, body in east_parts():
-        r = post("/road", {**body, "dryRun": True})
+    for nm, path, body in east_parts():
+        r = post(path, {**body, "dryRun": True})
+        if path == "/roadfit":
+            print(nm, (r.get("chosen") or {}).get("variant"), r.get("anchors"), r.get("error"))
+            r = r.get("result") or r
         show(nm, r)
         print("   ", (r.get("geometry") or {}).get("minRadius"), json.dumps(r.get("snapping"))[:300])
 elif stage == "build":
@@ -134,7 +138,10 @@ elif stage == "build":
         for nm, body in river():
             show(nm, post("/road", body))
     with paused(WHO):
-        for nm, body in east_parts():
-            r = post("/road", body)
+        for nm, path, body in east_parts():
+            r = post(path, body)
+            if path == "/roadfit":
+                print(nm, (r.get("chosen") or {}).get("variant"), r.get("anchors"))
+                r = r.get("result") or r
             show(nm, r)
             print("   ", json.dumps(r.get("snapping"))[:300])

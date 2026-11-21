@@ -805,5 +805,23 @@
   "reported_by": "builder-northeast",
   "status": "open",
   "added": "2026-11-21"
+ },
+ {
+  "rank": 78,
+  "domain": "Build",
+  "feature": "Harbour/pier placement on built-up shores",
+  "why_it_matters": "/findspot and /place suggest in-water lots for Harbor01 ('In Water x55') and find no valid site on built-up lake shores; a shoreline-aware placement helper is needed for the lake water bus.",
+  "reported_by": "builder-central",
+  "status": "open",
+  "added": "2026-11-21"
+ },
+ {
+  "rank": 79,
+  "domain": "Build",
+  "feature": "Paths cannot join roads",
+  "why_it_matters": "/road with path prefabs never snaps to roads, so greenways cannot link to promenades.",
+  "reported_by": "builder-central",
+  "status": "open",
+  "added": "2026-11-21"
  }
 ]

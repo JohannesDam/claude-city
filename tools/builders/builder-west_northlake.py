@@ -24,11 +24,14 @@ from cc import get, paused, post, short, zone  # noqa: E402
 
 WHO = "builder-west"
 DRY = "dry" in sys.argv[2:]
-AVENUE = [[-3009, 2050], [-3018, 2190], [-3048, 2330], [-3075, 2450], [-3086, 2600], [-3072, 2790]]
-LAKE_ST = [[-3075, 2450], [-2930, 2462], [-2789, 2490]]
-PARK_LANE = [[-3075, 2450], [-3140, 2450], [-3195, 2452]]
-CRESCENT = [[-3046, 2315], [-3150, 2300], [-3270, 2335], [-3335, 2450], [-3285, 2565], [-3180, 2602], [-3085, 2600]]
-SQUARE = (-3075, 2450)
+AVENUE = [[-3009, 2050], [-3020, 2200], [-3065, 2330], [-3130, 2400], [-3230, 2505], [-3330, 2615]]
+LAKE_ST = [[-3130, 2400], [-3018, 2418], [-2900, 2458], [-2789, 2490]]
+# a high-voltage line crosses Northlake NW-SE (pylons (-2861,2207) (-2964,2344) (-3073,2474) (-3189,2600) (-3312,2719));
+# the avenue runs ~90 m south-west of it, Lake Street crosses under the wires midway between two pylons.
+PARK_LANE = [[-3130, 2400], [-3200, 2360], [-3260, 2340]]
+CRESCENT = []  # phase 2: re-plan around the power line
+SQUARE = (-3130, 2400)
+LOG = r"C:\soft\cityskyline\logs\council\demolitions.jsonl"
 BOX = [-3429, 2040, -2795, 2800]
 
 
@@ -58,16 +61,26 @@ def on(poly, tol=25, prefab=None):
     return out
 
 
-def fitroad(name, prefab, pts, min_r):
+def fitroad(name, prefab, pts, min_r, max_buildings=0):
     body = {"prefab": prefab, "points": pts, "fit": {"tolerance": 15, "minRadius": min_r}}
+    if max_buildings:
+        body.update({"allowDemolish": True, "maxBuildings": max_buildings, "maxHouseholds": max_buildings, "maxCompanies": 0})
     d = post("/roadfit", {**body, "dryRun": True})
     c = d.get("chosen") or {}
-    res = c.get("result") or {}
-    print(f"{name} dry: {c.get('variant')} minR {(c.get('geometry') or {}).get('minRadius')} demolish {res.get('demolition')} wd {len(res.get('wouldDemolish') or [])}", flush=True)
-    if DRY or not c or res.get("wouldDemolish"):
+    dem = c.get("demolition") or (c.get("result") or {}).get("demolition") or {}
+    wd = dem.get("ids") or []
+    print(f"{name} dry: {c.get('variant')} minR {(c.get('geometry') or {}).get('minRadius')} demolish {dem}", flush=True)
+    if DRY or not c or len(wd) > max_buildings:
         return False
     r = post("/roadfit", body)
     print(f"{name}: {r.get('applied')} {(r.get('chosen') or {}).get('variant')}", flush=True)
+    if r.get("applied") and wd:
+        with open(LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S"), "by": WHO, "prefab": f"{prefab} ({name})",
+                                "item": "b2-housing-northlake-new-town-p1 / jobs priority 2033-01",
+                                "ids": wd, "buildings": ["NA_ResidentialLow01_L2_2x5 (-3018,2078)", "NA_ResidentialLow01_L5_2x6 (-2977,2039)"],
+                                "cost": {"households": dem.get("households"), "companies": dem.get("companies")},
+                                "note": "the only road link from Westside (corner node (-3009,2050)) into Northlake; every course removes these 2 low homes at the junction"}) + "\n")
     return bool(r.get("applied"))
 
 
@@ -81,11 +94,11 @@ def trees(name, poly, prefab, grass=False):
 
 def roads():
     if DRY:
-        fitroad("Avenue", "Medium Road", AVENUE, 250)
+        fitroad("Avenue", "Medium Road", AVENUE, 100, max_buildings=2)
         fitroad("Lake Street", "Medium Road", LAKE_ST, 150)
         return
     with paused(WHO):
-        if not fitroad("Avenue", "Medium Road", AVENUE, 250):
+        if not fitroad("Avenue", "Medium Road", AVENUE, 100, max_buildings=2):
             return
         time.sleep(1)
         fitroad("Lake Street", "Medium Road", LAKE_ST, 150)
@@ -131,11 +144,28 @@ def zone_all():
         cells[name] = cells.get(name, 0) + (r.get("cellsChanged") or 0)
 
     with paused(WHO):
+        g = post("/roadupgrade", {"polyline": AVENUE, "tolerance": 20, "prefabFilter": "Medium Road", "upgrade": "Grass", "side": "both"})
+        print("avenue grass:", short(g, ("applied", "cost", "errors")), flush=True)
+        for prefab in ("CityPark03", "CityPark02"):
+            p = post("/place", {"prefab": prefab, "near": [-3300, 2320], "within": [-3420, 2200, -3230, 2420],
+                                "radius": 120, "maxHouseholds": 0, "maxCompanies": 0}, timeout=300)
+            print("park:", prefab, p.get("applied"), p.get("placedId"), (p.get("chosen") or {}).get("x"), (p.get("chosen") or {}).get("z"), p.get("error") or "", flush=True)
+            if p.get("applied"):
+                break
         av = on(AVENUE, prefab="Medium Road")
-        core = [s["id"] for s in av if 2330 <= mid(s)[1] <= 2620]
-        rest = [s["id"] for s in av if not 2330 <= mid(s)[1] <= 2620]
-        z("Office High", core, "both")
-        z("Office High", [s["id"] for s in on(LAKE_ST, prefab="Medium Road") if mid(s)[0] > -3050], "both")
+        # conductor 2033-01: office demand is 0 again -> balanced district: a small office core on Lake Street next
+        # to the square, Commercial High at the square, Mixed (shops below homes) on the avenue near the square,
+        # Residential High/Medium further out.
+        d_sq = lambda s: math.hypot(mid(s)[0] - SQUARE[0], mid(s)[1] - SQUARE[1])  # noqa: E731
+        lake = on(LAKE_ST, prefab="Medium Road")
+        z("NA Commercial High", [s["id"] for s in av + lake if d_sq(s) < 70], "both")
+        z("Office High", [s["id"] for s in lake if 70 <= d_sq(s) < 200], "both")
+        z("NA Residential Mixed", [s["id"] for s in av if 70 <= d_sq(s) < 260], "both")
+        z("NA Residential Mixed", [s["id"] for s in lake if d_sq(s) >= 200], "both")
+        z("NA Residential High", [s["id"] for s in av if d_sq(s) >= 260 and mid(s)[1] > 2400], "both")
+        rest = [s["id"] for s in av if d_sq(s) >= 260 and mid(s)[1] <= 2400]
+        z("NA Residential Medium", rest, "both")
+        rest = []
         z("NA Commercial Low", [s["id"] for s in on(PARK_LANE, prefab="Small Road") if mid(s)[0] < -3100], "both", 4)
         for s in on(CRESCENT, tol=30, prefab="Small Road"):
             (sx, sz), (ex, ez) = s["start"], s["end"]

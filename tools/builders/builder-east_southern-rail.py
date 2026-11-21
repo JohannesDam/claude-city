@@ -72,3 +72,69 @@ if stage == "dry":
     show("tunnel", post("/road", {"prefab": TRACK, "points": TUNNEL, "dryRun": True}))
     for nm, body in river():
         show(nm, post("/road", {**body, "dryRun": True}))
+
+# ---------------------------------------------------------------- terminal access + CargoTrainTerminal02
+WAY = {"prefab": "Medium Road", "points": [[1080, -1650], [1240, -1650], [1460, -1650]], "curve": "smooth"}
+LINK = {"prefab": "Medium Road", "start": [1239, -1506], "end": [1240, -1650], "fit": {"tolerance": 20, "minRadius": 60}}
+EAST = {"prefab": "Medium Road", "start": [1460, -1650], "end": [1450, -1430], "startDir": [1, 0],
+        "fit": {"tolerance": 30, "minRadius": 60}}
+TERMINAL_BOX = [321, -2171, 1548, -1568]
+
+if stage == "access":
+    with paused(WHO):
+        show("way", post("/road", WAY))
+        for nm, body in (("link", LINK), ("east", EAST)):
+            r = post("/roadfit", body)
+            show(nm, r.get("result") or r)
+        post("/roundabout", {"at": [1080, -1650], "minDegree": 1, "radius": 20, "prefab": "CulDeSacLarge01"})
+        for up in ("Trees", "Grass"):
+            u = post("/roadupgrade", {"box": [1070, -1660, 1480, -1420], "prefabFilter": "Medium Road", "upgrade": up,
+                                      "side": "both"})
+            show(up, u)
+elif stage == "terminal":
+    body = {"prefab": "CargoTrainTerminal02", "near": [1250, -1740], "within": TERMINAL_BOX, "radius": 300,
+            "maxHouseholds": 0, "maxCompanies": 0}
+    dry = post("/place", {**body, "dryRun": True})
+    ch = dry.get("chosen") or {}
+    print("dry", json.dumps({k: ch.get(k) for k in ("x", "z", "angle", "errors", "roadConnected", "corners")})[:600], dry.get("error"))
+    if len(sys.argv) > 2 and sys.argv[2] == "go" and ch:
+        with paused(WHO):
+            r = post("/place", body)
+        print("placed", r.get("placedId"))
+        log("terminal", {"id": r.get("placedId"), "chosen": ch})
+
+# ---------------------------------------------------------------- east: river -> terminal (2549899:55)
+# terminal tracks: north platform track ends (1115.6,-1730.5)/(1395.6,-1730.5), south (1115.6,-1776.5)/(1395.6,-1776.5)
+EAST_MAIN = [[-110, Z], [200, -2120], [550, -1930], [850, -1780], [985, -1753]]
+SPLIT_N = [[985, -1753], [1050, -1736], [1115.6, -1730.5]]
+SPLIT_S = [[985, -1753], [1050, -1771], [1115.6, -1776.5]]
+
+
+def east_parts():
+    return [("east main", {"prefab": TRACK, "points": EAST_MAIN, "curve": "smooth"}),
+            ("split N", {"prefab": TRACK, "points": SPLIT_N, "curve": "smooth"}),
+            ("split S", {"prefab": TRACK, "points": SPLIT_S, "curve": "smooth"})]
+
+
+if stage == "dry-east":
+    for nm, body in east_parts():
+        r = post("/road", {**body, "dryRun": True})
+        show(nm, r)
+        print("   ", (r.get("geometry") or {}).get("minRadius"), json.dumps(r.get("snapping"))[:300])
+elif stage == "build":
+    with paused(WHO):
+        r = post("/roadfit", BRANCH)
+        res = r.get("result") or {}
+        show("branch", res)
+        log("branch", {k: res.get(k) for k in ("applied", "cost", "newEdgeIds")})
+        if not res.get("applied"):
+            sys.exit(1)
+        r = post("/road", {"prefab": TRACK, "points": TUNNEL})
+        show("tunnel", r)
+        for nm, body in river():
+            show(nm, post("/road", body))
+    with paused(WHO):
+        for nm, body in east_parts():
+            r = post("/road", body)
+            show(nm, r)
+            print("   ", json.dumps(r.get("snapping"))[:300])

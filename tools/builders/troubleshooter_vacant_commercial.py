@@ -25,7 +25,7 @@ def probe(b):
     return r.get("buildings", {})
 
 
-def scan(box):
+def scan(box, kinds=("Commercial",)):
     x0, z0, x1, z1 = box
     bl, off = [], 0
     while True:
@@ -35,19 +35,22 @@ def scan(box):
         if not r.get("truncated"):
             break
         off += r["returned"]
-    com = [b for b in bl if "Commercial" in b["prefab"] and x0 <= b["pos"][0] <= x1 and z0 <= b["pos"][1] <= z1]
+    com = [b for b in bl if any(k in b["prefab"] for k in kinds) and "Mixed" not in b["prefab"]
+           and x0 <= b["pos"][0] <= x1 and z0 <= b["pos"][1] <= z1]
     vac = []
-    with paused("troubleshooter"):
-        for b in com:
-            bb = probe(b)
-            if bb.get("count") == 1 and bb.get("companies") == 0 and bb.get("households") == 0 \
-                    and bb["list"][0]["id"] == b["id"]:
-                vac.append(b)
-    print(json.dumps({"commercial": len(com), "vacant": vac}))
+    for i in range(0, len(com), 40):  # short lock blocks
+        with paused("troubleshooter"):
+            for b in com[i:i + 40]:
+                bb = probe(b)
+                if bb.get("count") == 1 and bb.get("companies") == 0 and bb.get("households") == 0 \
+                        and bb["list"][0]["id"] == b["id"]:
+                    b["zoneKind"] = bb["list"][0].get("kind")
+                    vac.append(b)
+    print(json.dumps({"scanned": len(com), "vacant": vac}))
     return vac
 
 
-def clear(vac):
+def clear(vac, why):
     done = []
     with paused("troubleshooter"):
         for b in vac:
@@ -62,8 +65,7 @@ def clear(vac):
                 with open(DEMOLITIONS, "a") as f:
                     f.write(json.dumps({"who": "troubleshooter", "at": get("/city")["date"], "id": b["id"],
                                         "prefab": b["prefab"], "pos": b["pos"], "households": 0, "companies": 0,
-                                        "why": "vacant commercial (no company) in over-zoned Pearl Bay; lot rezoned "
-                                               "to residential (demand 100) to add customers for the occupied shops"})
+                                        "why": why})
                             + "\n")
     return done
 
@@ -92,13 +94,15 @@ def main():
     a = sys.argv
     mode = a[1]
     if mode == "scan":
-        scan([float(v) for v in a[a.index("--box") + 1:a.index("--box") + 5]])
+        kinds = tuple(a[a.index("--kinds") + 1].split(",")) if "--kinds" in a else ("Commercial",)
+        scan([float(v) for v in a[a.index("--box") + 1:a.index("--box") + 5]], kinds)
         return
     sites = json.load(open(a[a.index("--ids-file") + 1]))
     if isinstance(sites, dict):
         sites = sites["vacant"]
     if mode == "clear":
-        done = clear(sites)
+        why = a[a.index("--why") + 1] if "--why" in a else "vacant (no company, no households); lot rezoned to a zone with demand"
+        done = clear(sites, why)
         json.dump(done, open(a[a.index("--ids-file") + 1] + ".cleared.json", "w"))
     elif mode == "rezone":
         rezone(sites, a[a.index("--zone") + 1] if "--zone" in a else "NA Residential Medium")

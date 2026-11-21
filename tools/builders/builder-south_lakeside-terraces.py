@@ -103,7 +103,12 @@ def stage_green(dry):
 def zone_edges(name, edges, side, depth, dry):
     if not edges:
         return
-    r = post("/zone", {"zone": name, "mode": "road", "edges": edges, "side": side, "depth": depth, "dryRun": dry})
+    body = {"zone": name, "mode": "road", "edges": edges, "side": side, "depth": depth, "dryRun": dry}
+    if dry:
+        r = post("/zone", body)
+    else:
+        with paused(WHO):  # one short lock block per zone call
+            r = post("/zone", body)
     print(f"zone {name:<26} {side:<5} d{depth} n={len(edges)}",
           json.dumps(short(r, keys=("applied", "cost", "cells", "zonedCells", "occupiedCellsRezoned", "errors",
                                     "error"))), flush=True)
@@ -126,7 +131,8 @@ def stage_zone(dry):
             zone_edges("Residential LowRent", [e["id"]], out, 4, dry)
         else:
             zone_edges("EU Residential High", [e["id"]], out, 4 if mz < -1370 else 5, dry)
-        zone_edges("EU Residential Medium Row", [e["id"]], inn, 3, dry)
+        if mz < -1230:  # not between the crescent and the WWTP
+            zone_edges("EU Residential Medium Row", [e["id"]], inn, 3, dry)
     for e in small:
         zone_edges("EU Residential Medium", [e["id"]], inner_side(e), 3, dry)
         mz = (e["start"][1] + e["end"][1]) / 2
@@ -155,8 +161,7 @@ elif MODE == "green":
 elif MODE == "zone-dry":
     stage_zone(True)
 elif MODE == "zone":
-    with paused(WHO):
-        stage_zone(False)
+    stage_zone(False)
 elif MODE == "check":
     for t in ("Water Notification", "Sewage Notification", "No Car Access", "No Pedestrian Access"):
         p = get("/problems", type=t)

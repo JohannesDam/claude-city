@@ -185,3 +185,53 @@ if stage == "route":
                   json.dumps(r.get("pathCheck"))[:200])
             out.append({"stop": stop, "oc": oc, "line": line.get("lineId") or line.get("id") or r.get("lineId")})
     log("routes", out)
+
+# ---------------------------------------------------------------- phase 2a: East Bank South passenger station
+ST_ROAD = {"prefab": "Medium Road", "start": [700, -1536], "end": [700, -1730], "fit": {"tolerance": 10, "minRadius": 60}}
+ST_BOX = [321, -2171, 1548, -1568]
+
+if stage == "station-road":
+    with paused(WHO):
+        r = post("/roadfit", ST_ROAD)
+        show("station road", r.get("result") or r)
+        c = post("/roundabout", {"at": [700, -1730], "minDegree": 1, "radius": 20, "prefab": "CulDeSacLarge01"})
+        show("culdesac", c)
+        for up in ("Trees", "Grass"):
+            show(up, post("/roadupgrade", {"box": [690, -1740, 710, -1550], "prefabFilter": "Medium Road", "upgrade": up,
+                                           "side": "both"}))
+elif stage == "station":
+    prefab = sys.argv[2] if len(sys.argv) > 2 else "TrainStation03"
+    body = {"prefab": prefab, "near": [670, -1650], "within": ST_BOX, "radius": 150, "maxHouseholds": 0,
+            "maxCompanies": 0, "all": True}
+    dry = post("/place", {**body, "dryRun": True})
+    for c in (dry.get("candidates") or [])[:6]:
+        print(c.get("x"), c.get("z"), c.get("angle"), c.get("errors"), c.get("roadConnected"), c.get("corners"))
+    ch = dry.get("chosen") or {}
+    print("chosen", json.dumps({k: ch.get(k) for k in ("x", "z", "angle", "errors", "roadConnected", "corners")}), dry.get("error"))
+    if len(sys.argv) > 3 and sys.argv[3] == "go" and ch:
+        with paused(WHO):
+            r = post("/place", body)
+        print("placed", r.get("placedId"))
+
+# ---------------------------------------------------------------- phase 2b: RailYard02 for East Gate (RailYard02
+# 895488:65 in the South gateway had 0 of 8 trains free, so the new routes stayed at 1 vehicle)
+YARD_ROAD = {"prefab": "Medium Road", "start": [1460, -1650], "end": [1460, -2130], "startDir": [0, -1],
+             "fit": {"tolerance": 10, "minRadius": 60}}
+if stage == "yard-road":
+    with paused(WHO):
+        r = post("/roadfit", YARD_ROAD)
+        show("yard road", r.get("result") or r)
+        show("culdesac", post("/roundabout", {"at": [1460, -2130], "minDegree": 1, "radius": 20, "prefab": "CulDeSacLarge01"}))
+        show("trees", post("/roadupgrade", {"box": [1450, -2140, 1470, -1660], "prefabFilter": "Medium Road",
+                                            "upgrade": "Trees", "side": "both"}))
+elif stage == "yard":
+    body = {"prefab": "RailYard02", "near": [1390, -1980], "within": [321, -2171, 1548, -1830], "radius": 200,
+            "maxHouseholds": 0, "maxCompanies": 0, "all": True}
+    dry = post("/place", {**body, "dryRun": True})
+    for c in (dry.get("candidates") or [])[:6]:
+        print(c.get("x"), c.get("z"), c.get("angle"), c.get("errors"), c.get("roadConnected"), c.get("corners"))
+    print("chosen", json.dumps({k: (dry.get("chosen") or {}).get(k) for k in ("x", "z", "angle", "corners")}), dry.get("error"))
+    if len(sys.argv) > 2 and sys.argv[2] == "go" and dry.get("chosen"):
+        with paused(WHO):
+            r = post("/place", body)
+        print("placed", r.get("placedId"))

@@ -119,3 +119,22 @@ if MODE == "check-1b":
     inbox = [b for b in hh.get("buildings", []) if BOX_1B[0] <= b["pos"][0] <= BOX_1B[2] and BOX_1B[1] <= b["pos"][1] <= BOX_1B[3]]
     print(len(inbox), Counter(b["prefab"].split("_L")[0] for b in inbox))
     print("access", access_check([b["id"] for b in inbox]))
+
+# Sub-phase 1c (2033-01-10, after 1b regrew): only the clean edges of the z=2490..2600 block - the south row
+# west of the avenue (north side of the z=2490 street = "right"; every cell NA Residential Low). The z=2600
+# south side is skipped: it holds FireHouse01 526239:25, Cemetery02 783803:65 and its Columbarium, and the
+# east part of z=2490 (409416:63, 337048:3) touches unzoned/service cells.
+PLAN_1C = [
+    ("NA Residential Mixed", ["337052:3"], "right"),
+    ("NA Residential High", ["337128:3"], "right"),
+    ("NA Residential Medium", ["337232:3"], "right"),
+]
+if MODE in ("1c-dry", "1c"):
+    with paused(WHO) if MODE == "1c" else open(__file__):
+        for zname, edges, side in PLAN_1C:
+            r = post("/zone", {"zone": zname, "mode": "road", "edges": edges, "depth": 6, "side": side,
+                               "overwrite": True, "allowDemolish": True, "dryRun": MODE == "1c-dry"})
+            print(zname, edges, json.dumps({k: r.get(k) for k in ("applied", "cellsChanged", "cellsFromZone", "error")}))
+        if MODE == "1c":
+            t = post("/roadupgrade", {"edges": [e for _, es, _ in PLAN_1C for e in es], "upgrade": "Trees", "side": "both"})
+            print("trees", t.get("applied"))

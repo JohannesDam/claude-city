@@ -436,6 +436,30 @@
    "notes": "Radio Telescope 937617:111 and Geological Research Center 2258718:3 on Medical Drive; inside the in-game University Hill district (areas cannot overlap). The Large Hadron Collider needs its own tile later."
   },
   {
+   "name": "Campus Village",
+   "gameDistrict": "Campus Village",
+   "bbox": [
+    -2181,
+    4675,
+    -1558,
+    5298
+   ],
+   "owner": "builder-northeast",
+   "phase": "building",
+   "character": "lakeside student and staff village north of the University Hill campus: Campus Loop (Medium, trees) round two curved walks, campus green with ElementarySchool03, lakeside parks, dense mixed homes",
+   "tiles": [
+    [
+     -1870,
+     4986
+    ],
+    [
+     -2493,
+     4363
+    ]
+   ],
+   "notes": "Access by Lakeside Drive on the shore tile (-2493,4363) west of TechnicalUniversity01; College Row and Scholars Lane (z 4570..4790) lie inside the in-game University Hill district. Free pocket east of Fellows Way x -1650..-1570, z 4690..4840."
+  },
+  {
    "name": "Riverside",
    "gameDistrict": null,
    "bbox": [

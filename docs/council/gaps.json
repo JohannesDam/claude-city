@@ -796,5 +796,14 @@
   "reported_by": "builder-central",
   "status": "open",
   "added": "2026-11-21"
+ },
+ {
+  "rank": 77,
+  "domain": "Build",
+  "feature": "/place cost cap and size preference",
+  "why_it_matters": "/place builds the first valid candidate of the given prefab only; a builder asking for a fire station got the big FireStation01 ($2.15M) where FireHouse01 ($120k) would do - add maxCost / prefer-smaller options or accept a list of prefabs in preference order.",
+  "reported_by": "builder-northeast",
+  "status": "open",
+  "added": "2026-11-21"
  }
 ]
